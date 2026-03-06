@@ -47,16 +47,27 @@ export const updatePost = async (req, res) => {
     const { id } = req.params
     const { title, content } = req.body
 
+    // Validasi: minimal satu field harus dikirim
+    if (title === undefined && content === undefined) {
+      return res.status(400).json({ error: 'title atau content wajib diisi' })
+    }
+
+    // Bangun object update hanya dengan field yang dikirim
+    const updates = {}
+    if (title !== undefined) updates.title = title
+    if (content !== undefined) updates.content = content
+
+    // Gunakan maybeSingle() agar null dikembalikan (bukan error) saat tidak ada baris cocok
     const { data, error } = await supabaseAdmin
       .from('posts')
-      .update({ title, content })
+      .update(updates)
       .eq('id', id)
-      .eq('user_id', req.user.id)  // pastikan hanya bisa edit milik sendiri
+      .eq('user_id', req.user.id) // pastikan hanya bisa edit milik sendiri
       .select()
-      .single()
+      .maybeSingle()
 
     if (error) throw error
-    if (!data) return res.status(404).json({ error: 'Post tidak ditemukan' })
+    if (!data) return res.status(404).json({ error: 'Post tidak ditemukan atau bukan milik kamu' })
 
     res.json({ message: 'Post berhasil diupdate', post: data })
   } catch (err) {
@@ -71,11 +82,22 @@ export const deletePost = async (req, res) => {
   try {
     const { id } = req.params
 
+    // Cek dulu apakah post ada dan milik user ini
+    const { data: existing, error: findError } = await supabaseAdmin
+      .from('posts')
+      .select('id')
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .maybeSingle()
+
+    if (findError) throw findError
+    if (!existing) return res.status(404).json({ error: 'Post tidak ditemukan atau bukan milik kamu' })
+
     const { error } = await supabaseAdmin
       .from('posts')
       .delete()
       .eq('id', id)
-      .eq('user_id', req.user.id)  // pastikan hanya bisa hapus milik sendiri
+      .eq('user_id', req.user.id)
 
     if (error) throw error
     res.json({ message: 'Post berhasil dihapus' })
