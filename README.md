@@ -1,17 +1,17 @@
 # Press Up — REST API
 
-REST API untuk aplikasi **Press Up**, dibangun dengan:
+API Backend profesional untuk aplikasi **Press Up**, dibangun dengan performa tinggi menggunakan Node.js, Express 5, dan Supabase.
 
-- **Runtime**: Node.js + Express 5
-- **Auth & Database**: [Supabase](https://supabase.com) (Auth + PostgreSQL)
-- **Auth Strategy**: Supabase JWT (email/password + Google OAuth)
-- **Deploy**: Vercel (Serverless)
+- **Stack**: Node.js + Express 5
+- **Database**: [Supabase](https://supabase.com) (PostgreSQL)
+- **Auth**: Supabase JWT (Email/Password & Google OAuth)
+- **Infrastructure**: Vercel Serverless Functions
 
 ---
 
-## 🚀 Cara Setup Lokal
+## 🚀 Memulai (Setup Lokal)
 
-### 1. Clone & Install
+### 1. Instalasi
 ```bash
 git clone <repo-url>
 cd rest-api-pressup
@@ -19,167 +19,182 @@ npm install
 ```
 
 ### 2. Konfigurasi Environment
-Copy `.env.example` ke `.env`, lalu isi dengan credential Supabase kamu:
+Buat file `.env` di root project dan isi sesuai dengan `.env.example`:
 ```bash
 cp .env.example .env
 ```
-> **Catatan:** `SUPABASE_SERVICE_KEY` adalah **service_role key** yang bypass Row Level Security (RLS). Jangan pernah expose key ini ke client/frontend!
+> [!IMPORTANT]
+> `SUPABASE_SERVICE_KEY` adalah **service_role key**. Jangan pernah membagikan key ini ke sisi client/frontend karena memiliki akses penuh (bypass RLS).
 
-### 3. Setup Database Supabase
-Jalankan SQL berikut di **Supabase → SQL Editor**:
+### 3. Inisialisasi Database
+Jalankan script SQL yang tersedia di [database_setup.md](./database_setup.md) untuk menyiapkan tabel, trigger, dan sistem keamanan (RLS).
 
-```sql
--- HELPER FUNCTION: Update timestamp otomatis
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- 1. Tabel profiles
-CREATE TABLE IF NOT EXISTS profiles (
-    id         UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    name       TEXT NOT NULL,
-    email      TEXT NOT NULL UNIQUE,
-    xp         INTEGER DEFAULT 0 CHECK (xp >= 0),
-    level      INTEGER DEFAULT 1 CHECK (level >= 1),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TRIGGER set_updated_at_profiles
-    BEFORE UPDATE ON profiles
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users can view and edit own profile" ON profiles FOR ALL USING (auth.uid() = id);
-
--- 2. Game Sessions
-CREATE TABLE IF NOT EXISTS game_sessions (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    topic       TEXT NOT NULL,
-    duration    INTEGER NOT NULL CHECK (duration > 0),
-    total_score DECIMAL(5,2) DEFAULT 0 CHECK (total_score >= 0),
-    status      TEXT NOT NULL DEFAULT 'recording' CHECK (status IN ('recording', 'processing', 'completed', 'failed')),
-    created_at  TIMESTAMPTZ DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TRIGGER set_updated_at_game_sessions
-    BEFORE UPDATE ON game_sessions
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
-ALTER TABLE game_sessions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own game sessions" ON game_sessions FOR ALL USING (auth.uid() = user_id);
-
--- 3. Recordings
-CREATE TABLE IF NOT EXISTS recordings (
-    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id UUID NOT NULL UNIQUE REFERENCES game_sessions(id) ON DELETE CASCADE,
-    audio_url  TEXT,
-    video_url  TEXT,
-    transcript TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE recordings ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users access own recordings via session" ON recordings FOR ALL USING (EXISTS (SELECT 1 FROM game_sessions gs WHERE gs.id = recordings.session_id AND gs.user_id = auth.uid()));
-
--- 4. Feedbacks
-CREATE TABLE IF NOT EXISTS feedbacks (
-    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id       UUID NOT NULL UNIQUE REFERENCES game_sessions(id) ON DELETE CASCADE,
-    eye_score        DECIMAL(5,2) CHECK (eye_score BETWEEN 0 AND 100),
-    voice_score      DECIMAL(5,2) CHECK (voice_score BETWEEN 0 AND 100),
-    filler_score     DECIMAL(5,2) CHECK (filler_score BETWEEN 0 AND 100),
-    content_score    DECIMAL(5,2) CHECK (content_score BETWEEN 0 AND 100),
-    confidence_score DECIMAL(5,2) CHECK (confidence_score BETWEEN 0 AND 100),
-    overall_score    DECIMAL(5,2) GENERATED ALWAYS AS (COALESCE((eye_score + voice_score + filler_score + content_score + confidence_score) / 5, 0)) STORED,
-    summary          TEXT,
-    improvement_tips TEXT,
-    created_at       TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE feedbacks ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users access own feedback via session" ON feedbacks FOR ALL USING (EXISTS (SELECT 1 FROM game_sessions gs WHERE gs.id = feedbacks.session_id AND gs.user_id = auth.uid()));
-
--- 5. Achievements
-CREATE TABLE IF NOT EXISTS achievements (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    title       TEXT NOT NULL,
-    description TEXT,
-    unlocked_at TIMESTAMPTZ DEFAULT NOW(),
-    created_at  TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (user_id, title)
-);
-
-ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users view and manage own achievements" ON achievements FOR ALL USING (auth.uid() = user_id);
-
--- Legacy table for backward compatibility/reference
-CREATE TABLE IF NOT EXISTS posts (
-  id         UUID      DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id    UUID      REFERENCES auth.users(id) ON DELETE CASCADE,
-  title      TEXT      NOT NULL,
-  content    TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-
-ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users see own posts" ON posts FOR ALL USING (auth.uid() = user_id);
-```
-
-### 4. Jalankan Server
+### 4. Jalankan Aplikasi
 ```bash
-npm run dev   # Development
-npm start     # Production
+npm run dev   # Mode development (dengan nodemon)
+npm start     # Mode production
 ```
-Server berjalan di: `http://localhost:3000`
 
 ---
 
-## 📡 API Endpoints (Ringkasan)
+## 🧪 Dokumentasi Lengkap & Panduan Testing (Postman)
 
-| Method | Endpoint | Auth | Body | Keterangan |
-|--------|----------|------|------|------------|
-| `GET` | `/` | ❌ | — | Health check |
-| `POST` | `/api/auth/register` | ❌ | `email`, `password`, `name` | Daftar akun baru |
-| `POST` | `/api/auth/login` | ❌ | `email`, `password` | Login email & password |
-| `POST` | `/api/auth/google` | ❌ | `access_token`, `refresh_token` | Login Google (OAuth) |
-| `POST` | `/api/auth/refresh` | ❌ | `refresh_token` | Perbarui access token |
-| `GET` | `/api/auth/profile` | ✅ | — | Profil user login |
-| `GET` | `/api/posts` | ✅ | — | Ambil semua post user |
-| `POST` | `/api/posts` | ✅ | `title`, `content` | Buat post baru |
-| `PUT` | `/api/posts/:id` | ✅ | `title`, `content` | Update post (partial) |
-| `DELETE`| `/api/posts/:id` | ✅ | — | Hapus post |
+Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
+
+### 🔐 Autentikasi & Akun
+
+#### 1. Register
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/auth/register`
+- **Headers**: `Content-Type: application/json`
+- **Body (raw → JSON)**:
+```json
+{
+  "email": "test@gmail.com",
+  "password": "rahasia123",
+  "name": "Nama Kamu"
+}
+```
+
+#### 2. Login
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/auth/login`
+- **Headers**: `Content-Type: application/json`
+- **Body (raw → JSON)**:
+```json
+{
+  "email": "test@gmail.com",
+  "password": "rahasia123"
+}
+```
+> **Catatan**: Simpan `token` dari response untuk digunakan di request selanjutnya sebagai header `Authorization: Bearer <token>`.
+
+#### 3. Refresh Token
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/auth/refresh`
+- **Headers**: `Content-Type: application/json`
+- **Body (raw → JSON)**:
+```json
+{
+  "refresh_token": "isi_dengan_refresh_token"
+}
+```
 
 ---
 
-## 🧪 Panduan Testing (Postman)
+### 👤 Profil & Progress
 
-Gunakan langkah-langika berikut untuk mengetes API secara berurutan:
+#### 4. Get Profile
+- **Method**: `GET`
+- **URL**: `http://localhost:3000/api/profile`
+- **Headers**: `Authorization: Bearer <token>`
+- **Body**: ❌ Tidak ada
 
-### 1. Register & Login
-- **Register**: `POST` ke `/api/auth/register` dengan JSON body `email`, `password`, `name`.
-- **Login**: `POST` ke `/api/auth/login` dengan JSON body `email` & `password`.
-- **Penting**: Simpan `token` dari response login untuk request selanjutnya.
+#### 5. Update Profile
+- **Method**: `PUT`
+- **URL**: `http://localhost:3000/api/profile`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
+```json
+{
+  "name": "Nama Baru",
+  "xp": 150,
+  "level": 2
+}
+```
 
-### 2. Menggunakan Token di Postman
-Untuk semua request yang berlabel ✅ (Auth), tambahkan di tab **Headers**:
-| Key | Value |
-|-----|-------|
-| `Authorization` | `Bearer <token_kamu>` |
-*(Atau gunakan tab **Auth** → **Bearer Token** di Postman)*.
+---
 
-### 3. Contoh Body Request
+### 🎮 Game Engine (Sessions & Analytics)
 
-#### **Create Post** (`POST /api/posts`)
+#### 6. Create Game Session
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/game/sessions`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
+```json
+{
+  "topic": "Public Speaking 101",
+  "duration": 120
+}
+```
+
+#### 7. Get All Sessions
+- **Method**: `GET`
+- **URL**: `http://localhost:3000/api/game/sessions`
+- **Headers**: `Authorization: Bearer <token>`
+- **Body**: ❌ Tidak ada
+
+#### 8. Update Session Status
+- **Method**: `PUT`
+- **URL**: `http://localhost:3000/api/game/sessions/<id-session>`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
+```json
+{
+  "status": "completed",
+  "total_score": 85.5
+}
+```
+
+#### 9. Save Recording
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/game/recordings`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
+```json
+{
+  "session_id": "<id-session>",
+  "audio_url": "https://storage.com/audio.mp3",
+  "video_url": "https://storage.com/video.mp4",
+  "transcript": "Halo semuanya, hari ini saya akan..."
+}
+```
+
+#### 10. Save Feedback
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/game/feedback`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
+```json
+{
+  "session_id": "<id-session>",
+  "eye_score": 80,
+  "voice_score": 75,
+  "filler_score": 90,
+  "content_score": 85,
+  "confidence_score": 88,
+  "summary": "Presentasi yang bagus, kontak mata perlu ditingkatkan.",
+  "improvement_tips": "Coba lihat ke kamera lebih sering."
+}
+```
+
+#### 11. Get Session Feedback
+- **Method**: `GET`
+- **URL**: `http://localhost:3000/api/game/sessions/<id-session>/feedback`
+- **Headers**: `Authorization: Bearer <token>`
+- **Body**: ❌ Tidak ada
+
+#### 12. Get Achievements
+- **Method**: `GET`
+- **URL**: `http://localhost:3000/api/game/achievements`
+- **Headers**: `Authorization: Bearer <token>`
+- **Body**: ❌ Tidak ada
+
+---
+
+### 📝 Posts (Legacy/Optional)
+
+#### 13. Get All Posts
+- **Method**: `GET`
+- **URL**: `http://localhost:3000/api/posts`
+- **Headers**: `Authorization: Bearer <token>`
+
+#### 14. Create Post
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/posts`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
 ```json
 {
   "title": "Post Pertama",
@@ -187,43 +202,41 @@ Untuk semua request yang berlabel ✅ (Auth), tambahkan di tab **Headers**:
 }
 ```
 
-#### **Update Post** (`PUT /api/posts/<id>`)
+#### 15. Update Post
+- **Method**: `PUT`
+- **URL**: `http://localhost:3000/api/posts/<id-post>`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
 ```json
 {
-  "title": "Judul yang Diubah"
+  "title": "Judul Baru"
 }
 ```
-> `content` boleh tidak dikirim (hanya update yang perlu saja).
 
-#### **Refresh Token** (`POST /api/auth/refresh`)
-```json
-{
-  "refresh_token": "<refresh_token_dari_login>"
-}
-```
+#### 16. Delete Post
+- **Method**: `DELETE`
+- **URL**: `http://localhost:3000/api/posts/<id-post>`
+- **Headers**: `Authorization: Bearer <token>`
 
 ---
 
 ## 🔐 Keamanan & Autentikasi
-- **RLS (Row Level Security)**: Aktif di Supabase. User secara otomatis diproteksi agar hanya bisa CRUD data miliknya sendiri di database, bahkan jika ID post user lain diketahui.
+- **RLS (Row Level Security)**: Aktif di Supabase. User secara otomatis diproteksi agar hanya bisa CRUD data miliknya sendiri.
 - **JWT**: Token bersifat stateless. Gunakan `refresh_token` jika access token expired (biasanya 1 jam).
 
 ---
 
-## ☁️ Deploy ke Vercel
-1. Push repo ke GitHub.
-2. Import di [vercel.com](https://vercel.com).
-3. Isi **Environment Variables** (URL & Keys).
-4. Deploy!
+## 🗂️ Struktur Folder
+```text
+src/
+├── config/       # Konfigurasi Supabase
+├── controllers/  # Logika bisnis (auth.js, games.js, profiles.js, posts.js)
+├── middleware/   # Validasi JWT (auth.js)
+└── routes/       # Definisi endpoint (auth.js, games.js, profiles.js, posts.js)
+index.js          # Entry point aplikasi
+```
 
 ---
 
-## 🗂️ Struktur Proyek
-- `index.js`: Entry point & Express setup.
-- `src/controllers`: Logika bisnis (`auth.js`, `posts.js`, `profiles.js`, `games.js`).
-- `src/routes`: Jalur API (`auth.js`, `posts.js`, `profiles.js`, `games.js`).
-- `src/middleware`: Proteksi route dengan JWT (`auth.js`).
-- `src/config`: Koneksi Supabase (`supabase.js`).
-
-
-!
+## ☁️ Deployment
+Aplikasi ini dioptimalkan untuk **Vercel**. Pastikan kamu telah mengatur Environment Variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`) di dashboard Vercel.
