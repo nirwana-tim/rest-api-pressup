@@ -224,3 +224,6 @@ Untuk semua request yang berlabel ✅ (Auth), tambahkan di tab **Headers**:
 - `src/routes`: Jalur API (`auth.js`, `posts.js`, `profiles.js`, `games.js`).
 - `src/middleware`: Proteksi route dengan JWT (`auth.js`).
 - `src/config`: Koneksi Supabase (`supabase.js`).
+
+
+!
