@@ -21,6 +21,18 @@ export const register = async (req, res) => {
 
     if (error) return res.status(400).json({ error: error.message })
 
+    // Create profile Record
+    if (data.user) {
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          id: data.user.id,
+          name: name || 'User',
+          email: data.user.email
+        })
+      if (profileError) console.error('Error creating profile:', profileError.message)
+    }
+
     res.status(201).json({
       message: 'Registrasi berhasil! Cek email untuk verifikasi.',
       token: data.session?.access_token || null,

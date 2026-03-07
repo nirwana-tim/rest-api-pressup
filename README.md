@@ -27,8 +27,103 @@ cp .env.example .env
 
 ### 3. Setup Database Supabase
 Jalankan SQL berikut di **Supabase → SQL Editor**:
+
 ```sql
-CREATE TABLE posts (
+-- HELPER FUNCTION: Update timestamp otomatis
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 1. Tabel profiles
+CREATE TABLE IF NOT EXISTS profiles (
+    id         UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    email      TEXT NOT NULL UNIQUE,
+    xp         INTEGER DEFAULT 0 CHECK (xp >= 0),
+    level      INTEGER DEFAULT 1 CHECK (level >= 1),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TRIGGER set_updated_at_profiles
+    BEFORE UPDATE ON profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can view and edit own profile" ON profiles FOR ALL USING (auth.uid() = id);
+
+-- 2. Game Sessions
+CREATE TABLE IF NOT EXISTS game_sessions (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    topic       TEXT NOT NULL,
+    duration    INTEGER NOT NULL CHECK (duration > 0),
+    total_score DECIMAL(5,2) DEFAULT 0 CHECK (total_score >= 0),
+    status      TEXT NOT NULL DEFAULT 'recording' CHECK (status IN ('recording', 'processing', 'completed', 'failed')),
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TRIGGER set_updated_at_game_sessions
+    BEFORE UPDATE ON game_sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+ALTER TABLE game_sessions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own game sessions" ON game_sessions FOR ALL USING (auth.uid() = user_id);
+
+-- 3. Recordings
+CREATE TABLE IF NOT EXISTS recordings (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL UNIQUE REFERENCES game_sessions(id) ON DELETE CASCADE,
+    audio_url  TEXT,
+    video_url  TEXT,
+    transcript TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE recordings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users access own recordings via session" ON recordings FOR ALL USING (EXISTS (SELECT 1 FROM game_sessions gs WHERE gs.id = recordings.session_id AND gs.user_id = auth.uid()));
+
+-- 4. Feedbacks
+CREATE TABLE IF NOT EXISTS feedbacks (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id       UUID NOT NULL UNIQUE REFERENCES game_sessions(id) ON DELETE CASCADE,
+    eye_score        DECIMAL(5,2) CHECK (eye_score BETWEEN 0 AND 100),
+    voice_score      DECIMAL(5,2) CHECK (voice_score BETWEEN 0 AND 100),
+    filler_score     DECIMAL(5,2) CHECK (filler_score BETWEEN 0 AND 100),
+    content_score    DECIMAL(5,2) CHECK (content_score BETWEEN 0 AND 100),
+    confidence_score DECIMAL(5,2) CHECK (confidence_score BETWEEN 0 AND 100),
+    overall_score    DECIMAL(5,2) GENERATED ALWAYS AS (COALESCE((eye_score + voice_score + filler_score + content_score + confidence_score) / 5, 0)) STORED,
+    summary          TEXT,
+    improvement_tips TEXT,
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE feedbacks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users access own feedback via session" ON feedbacks FOR ALL USING (EXISTS (SELECT 1 FROM game_sessions gs WHERE gs.id = feedbacks.session_id AND gs.user_id = auth.uid()));
+
+-- 5. Achievements
+CREATE TABLE IF NOT EXISTS achievements (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    title       TEXT NOT NULL,
+    description TEXT,
+    unlocked_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (user_id, title)
+);
+
+ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users view and manage own achievements" ON achievements FOR ALL USING (auth.uid() = user_id);
+
+-- Legacy table for backward compatibility/reference
+CREATE TABLE IF NOT EXISTS posts (
   id         UUID      DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id    UUID      REFERENCES auth.users(id) ON DELETE CASCADE,
   title      TEXT      NOT NULL,
@@ -37,9 +132,7 @@ CREATE TABLE posts (
 );
 
 ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users see own posts" ON posts
-  FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users see own posts" ON posts FOR ALL USING (auth.uid() = user_id);
 ```
 
 ### 4. Jalankan Server
@@ -127,7 +220,7 @@ Untuk semua request yang berlabel ✅ (Auth), tambahkan di tab **Headers**:
 
 ## 🗂️ Struktur Proyek
 - `index.js`: Entry point & Express setup.
-- `src/controllers`: Logika bisnis (Auth & Posts).
-- `src/routes`: Definisi jalur API.
-- `src/middleware`: Proteksi route dengan JWT.
-- `src/config`: Koneksi Supabase.
+- `src/controllers`: Logika bisnis (`auth.js`, `posts.js`, `profiles.js`, `games.js`).
+- `src/routes`: Jalur API (`auth.js`, `posts.js`, `profiles.js`, `games.js`).
+- `src/middleware`: Proteksi route dengan JWT (`auth.js`).
+- `src/config`: Koneksi Supabase (`supabase.js`).

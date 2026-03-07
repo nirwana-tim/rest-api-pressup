@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getPosts, createPost, updatePost, deletePost } from '../controllers/postController.js'
+import { getPosts, createPost, updatePost, deletePost } from '../controllers/posts.js'
 import { authenticate } from '../middleware/auth.js'
 
 const router = Router()

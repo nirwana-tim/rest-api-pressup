@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { register, login, getProfile, googleCallback, refreshToken } from '../controllers/authController.js'
+import { register, login, getProfile, googleCallback, refreshToken } from '../controllers/auth.js'
 import { authenticate } from '../middleware/auth.js'
 
 const router = Router()
