@@ -69,7 +69,20 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ```
 > **Catatan**: Simpan `token` dari response untuk digunakan di request selanjutnya sebagai header `Authorization: Bearer <token>`.
 
-#### 3. Refresh Token
+#### 3. Google Login
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/auth/google`
+- **Headers**: `Content-Type: application/json`
+- **Body (raw → JSON)**:
+```json
+{
+  "access_token": "isi_dengan_google_token_dari_client",
+  "refresh_token": "opsional"
+}
+```
+> **Catatan**: Endpoint ini akan secara otomatis membuat entry di tabel `profiles` jika user baru pertama kali login.
+
+#### 4. Refresh Token
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/auth/refresh`
 - **Headers**: `Content-Type: application/json`
@@ -80,17 +93,41 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 }
 ```
 
+#### 5. Forgot Password
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/auth/forgot-password`
+- **Headers**: `Content-Type: application/json`
+- **Body (raw → JSON)**:
+```json
+{
+  "email": "test@gmail.com"
+}
+```
+> **Catatan**: Supabase akan mengirimkan email berisi tautan untuk mereset password.
+
+#### 6. Update Password
+- **Method**: `PUT`
+- **URL**: `http://localhost:3000/api/auth/update-password`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
+```json
+{
+  "password": "password_baru123"
+}
+```
+> **Penting**: Token yang digunakan harus token aktif dari session yang didapat setelah mengklik link reset password dari email.
+
 ---
 
 ### 👤 Profil & Progress
 
-#### 4. Get Profile
+#### 7. Get Profile
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/profile`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
-#### 5. Update Profile
+#### 8. Update Profile
 - **Method**: `PUT`
 - **URL**: `http://localhost:3000/api/profile`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -107,7 +144,7 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 ### 🎮 Game Engine (Sessions & Analytics)
 
-#### 6. Create Game Session
+#### 9. Create Game Session
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/sessions`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -119,13 +156,13 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 }
 ```
 
-#### 7. Get All Sessions
+#### 10. Get All Sessions
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/sessions`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
-#### 8. Update Session Status
+#### 11. Update Session Status
 - **Method**: `PUT`
 - **URL**: `http://localhost:3000/api/game/sessions/<id-session>`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -137,7 +174,7 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 }
 ```
 
-#### 9. Save Recording
+#### 12. Save Recording
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/recordings`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -151,7 +188,7 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 }
 ```
 
-#### 10. Save Feedback
+#### 13. Save Feedback
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/feedback`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -169,13 +206,13 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 }
 ```
 
-#### 11. Get Session Feedback
+#### 14. Get Session Feedback
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/sessions/<id-session>/feedback`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
-#### 12. Get Achievements
+#### 15. Get Achievements
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/achievements`
 - **Headers**: `Authorization: Bearer <token>`
@@ -185,12 +222,12 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 ### 📝 Posts (Legacy/Optional)
 
-#### 13. Get All Posts
+#### 16. Get All Posts
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/posts`
 - **Headers**: `Authorization: Bearer <token>`
 
-#### 14. Create Post
+#### 17. Create Post
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/posts`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -202,7 +239,7 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 }
 ```
 
-#### 15. Update Post
+#### 18. Update Post
 - **Method**: `PUT`
 - **URL**: `http://localhost:3000/api/posts/<id-post>`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -213,7 +250,7 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 }
 ```
 
-#### 16. Delete Post
+#### 19. Delete Post
 - **Method**: `DELETE`
 - **URL**: `http://localhost:3000/api/posts/<id-post>`
 - **Headers**: `Authorization: Bearer <token>`

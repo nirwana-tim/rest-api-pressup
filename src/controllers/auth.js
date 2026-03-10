@@ -99,6 +99,17 @@ export const googleCallback = async (req, res) => {
       return res.status(401).json({ error: 'Token Google tidak valid' })
     }
 
+    // UPSERT Profile (Create if not exists, update if exists)
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        name: user.user_metadata?.full_name || user.user_metadata?.name || 'Google User',
+        email: user.email
+      })
+
+    if (profileError) console.error('Error upserting Google profile:', profileError.message)
+
     res.json({
       message: 'Login Google berhasil',
       token: access_token,
@@ -154,6 +165,47 @@ export const getProfile = async (req, res) => {
         provider: req.user.app_metadata?.provider || 'email'
       }
     })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+// ================================
+// FORGOT PASSWORD
+// ================================
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email wajib diisi' })
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email)
+
+    if (error) return res.status(400).json({ error: error.message })
+
+    res.json({ message: 'Tautan reset password telah dikirim ke email kamu.' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// ================================
+// UPDATE PASSWORD (authenticated)
+// ================================
+export const updatePassword = async (req, res) => {
+  try {
+    const { password } = req.body
+
+    if (!password) {
+      return res.status(400).json({ error: 'Password baru wajib diisi' })
+    }
+
+    const { data, error } = await supabase.auth.updateUser({ password })
+
+    if (error) return res.status(400).json({ error: error.message })
+
+    res.json({ message: 'Password berhasil diperbarui', user: data.user })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
