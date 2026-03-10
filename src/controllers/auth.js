@@ -104,7 +104,7 @@ export const googleCallback = async (req, res) => {
       .from('profiles')
       .upsert({
         id: user.id,
-        name: user.user_metadata?.full_name || user.user_metadata?.name || 'Google User',
+        name: user.user_metadata?.full_name || user.user_metadata?.name || user.user_metadata?.display_name || 'Google User',
         email: user.email
       })
 
@@ -201,7 +201,11 @@ export const updatePassword = async (req, res) => {
       return res.status(400).json({ error: 'Password baru wajib diisi' })
     }
 
-    const { data, error } = await supabase.auth.updateUser({ password })
+    // Gunakan admin client untuk update user berdasarkan ID dari middleware authenticate
+    const { data, error } = await supabaseAdmin.auth.admin.updateUserById(
+      req.user.id,
+      { password }
+    )
 
     if (error) return res.status(400).json({ error: error.message })
 
