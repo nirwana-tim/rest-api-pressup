@@ -98,6 +98,16 @@ export const postFeedback = async (req, res) => {
     try {
         const { session_id, eye_score, voice_score, filler_score, content_score, confidence_score, summary, improvement_tips } = req.body
 
+        // Verify session belongs to user
+        const { data: session } = await supabaseAdmin
+            .from('game_sessions')
+            .select('id')
+            .eq('id', session_id)
+            .eq('user_id', req.user.id)
+            .maybeSingle()
+
+        if (!session) return res.status(404).json({ error: 'Session not found or forbidden' })
+
         const { data, error } = await supabaseAdmin
             .from('feedbacks')
             .insert({ session_id, eye_score, voice_score, filler_score, content_score, confidence_score, summary, improvement_tips })
@@ -114,6 +124,17 @@ export const postFeedback = async (req, res) => {
 export const getSessionFeedback = async (req, res) => {
     try {
         const { session_id } = req.params
+
+        // Verify session belongs to user
+        const { data: session } = await supabaseAdmin
+            .from('game_sessions')
+            .select('id')
+            .eq('id', session_id)
+            .eq('user_id', req.user.id)
+            .maybeSingle()
+
+        if (!session) return res.status(404).json({ error: 'Session not found or forbidden' })
+
         const { data, error } = await supabaseAdmin
             .from('feedbacks')
             .select('*')

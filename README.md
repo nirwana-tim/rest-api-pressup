@@ -103,19 +103,32 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
   "email": "test@gmail.com"
 }
 ```
-> **Catatan**: Supabase akan mengirimkan email berisi tautan untuk mereset password.
+> **Catatan**: Supabase akan mengirimkan kode OTP 6-digit ke email untuk recovery.
 
-#### 6. Update Password
+#### 6. Verify OTP
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/auth/verify-otp`
+- **Headers**: `Content-Type: application/json`
+- **Body (raw → JSON)**:
+```json
+{
+  "email": "test@gmail.com",
+  "token": "123456"
+}
+```
+> **Catatan**: Jika berhasil, endpoint ini mengembalikan `access_token` sementara. Simpan token ini untuk digunakan di langkah selanjutnya.
+
+#### 7. Update Password
 - **Method**: `PUT`
 - **URL**: `http://localhost:3000/api/auth/update-password`
-- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token_dari_verify_otp>`
 - **Body (raw → JSON)**:
 ```json
 {
   "password": "password_baru123"
 }
 ```
-> **Penting**: Token yang digunakan harus token aktif dari session yang didapat setelah mengklik link reset password dari email.
+> **Penting**: Gunakan token yang didapat dari hasil `Verify OTP` pada header Authorization.
 
 ---
 
@@ -220,40 +233,6 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 ---
 
-### 📝 Posts (Legacy/Optional)
-
-#### 16. Get All Posts
-- **Method**: `GET`
-- **URL**: `http://localhost:3000/api/posts`
-- **Headers**: `Authorization: Bearer <token>`
-
-#### 17. Create Post
-- **Method**: `POST`
-- **URL**: `http://localhost:3000/api/posts`
-- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
-- **Body (raw → JSON)**:
-```json
-{
-  "title": "Post Pertama",
-  "content": "Isi konten disini"
-}
-```
-
-#### 18. Update Post
-- **Method**: `PUT`
-- **URL**: `http://localhost:3000/api/posts/<id-post>`
-- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
-- **Body (raw → JSON)**:
-```json
-{
-  "title": "Judul Baru"
-}
-```
-
-#### 19. Delete Post
-- **Method**: `DELETE`
-- **URL**: `http://localhost:3000/api/posts/<id-post>`
-- **Headers**: `Authorization: Bearer <token>`
 
 ---
 

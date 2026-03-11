@@ -21,17 +21,6 @@ export const register = async (req, res) => {
 
     if (error) return res.status(400).json({ error: error.message })
 
-    // Create profile Record
-    if (data.user) {
-      const { error: profileError } = await supabaseAdmin
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          name: name || 'User',
-          email: data.user.email
-        })
-      if (profileError) console.error('Error creating profile:', profileError.message)
-    }
 
     res.status(201).json({
       message: 'Registrasi berhasil! Cek email untuk verifikasi.',
@@ -99,16 +88,6 @@ export const googleCallback = async (req, res) => {
       return res.status(401).json({ error: 'Token Google tidak valid' })
     }
 
-    // UPSERT Profile (Create if not exists, update if exists)
-    const { error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .upsert({
-        id: user.id,
-        name: user.user_metadata?.full_name || user.user_metadata?.name || user.user_metadata?.display_name || 'Google User',
-        email: user.email
-      })
-
-    if (profileError) console.error('Error upserting Google profile:', profileError.message)
 
     res.json({
       message: 'Login Google berhasil',
@@ -184,7 +163,38 @@ export const forgotPassword = async (req, res) => {
 
     if (error) return res.status(400).json({ error: error.message })
 
-    res.json({ message: 'Tautan reset password telah dikirim ke email kamu.' })
+    res.json({ message: 'Kode OTP telah dikirim ke email kamu.' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// ================================
+// VERIFY OTP (Recovery)
+// ================================
+export const verifyOtp = async (req, res) => {
+  try {
+    const { email, token } = req.body
+
+    if (!email || !token) {
+      return res.status(400).json({ error: 'Email dan kode OTP wajib diisi' })
+    }
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'recovery'
+    })
+
+    if (error) return res.status(400).json({ error: 'Kode OTP salah atau expired' })
+
+    res.json({
+      message: 'OTP valid. Silakan perbarui password Anda.',
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token
+      }
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
