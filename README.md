@@ -257,5 +257,5 @@ index.js          # Entry point aplikasi
 ## ☁️ Deployment
 Aplikasi ini dioptimalkan untuk **Vercel**. Pastikan kamu telah mengatur Environment Variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`) di dashboard Vercel.
 
-!!!
+!!!!
 
