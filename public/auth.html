@@ -1,198 +1,272 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Authenticating... | PressUp</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <style>
-        :root {
-            --primary: #6366f1;
-            --primary-light: #818cf8;
-            --bg-dark: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --text-main: #f8fafc;
-            --text-dim: #94a3b8;
-            --success: #10b981;
-            --error: #ef4444;
-        }
 
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Authentication • PressUp</title>
+    <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: 'Outfit', sans-serif;
         }
 
         body {
-            background-color: var(--bg-dark);
-            background-image: 
-                radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
-                radial-gradient(circle at 80% 80%, rgba(129, 140, 248, 0.1) 0%, transparent 40%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-main);
-            overflow: hidden;
+            margin: 0;
+            padding: 0;
+            background: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            color: #1f2a44;
+            line-height: 1.6;
         }
 
-        .container {
+        .outer-table {
             width: 100%;
-            max-width: 450px;
-            padding: 2rem;
+            padding: 40px 20px;
+            background: #f8fafc;
+        }
+
+        .card-wrapper {
+            max-width: 480px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+        }
+
+        .header {
+            background: #2dd4c0;
+            padding: 32px 24px;
             text-align: center;
-            position: relative;
-            z-index: 1;
         }
 
-        .card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 24px;
-            padding: 3rem 2rem;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        .header img {
+            width: 80px;
+            height: auto;
+            display: block;
+            margin: 0 auto 12px;
         }
 
-        .status-icon {
+        .header h1 {
+            color: white;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            margin: 0;
+        }
+
+        .content {
+            padding: 40px 32px;
+            text-align: center;
+        }
+
+        .icon-container {
             width: 80px;
             height: 80px;
-            margin: 0 auto 2rem;
-            position: relative;
+            margin: 0 auto 24px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
-        .spinner {
-            width: 60px;
-            height: 60px;
-            border: 4px solid rgba(99, 102, 241, 0.1);
-            border-left-color: var(--primary);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .check-icon, .cross-icon {
-            display: none;
+        .icon {
             width: 100%;
             height: 100%;
-            animation: scaleIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
 
-        @keyframes scaleIn {
-            from { transform: scale(0); opacity: 0; }
-            to { transform: scale(1); opacity: 1; }
-        }
-
-        h1 {
-            font-size: 1.75rem;
-            font-weight: 600;
-            margin-bottom: 0.75rem;
-            letter-spacing: -0.025em;
+        h2 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2a44;
+            margin: 0 0 16px;
         }
 
         p {
-            color: var(--text-dim);
-            line-height: 1.6;
-            margin-bottom: 2rem;
+            font-size: 16px;
+            color: #334155;
+            margin: 0 0 28px;
         }
 
         .btn {
             display: inline-block;
-            background: var(--primary);
+            background: #1f2a44;
             color: white;
-            padding: 0.875rem 2rem;
-            border-radius: 12px;
-            text-decoration: none;
+            font-size: 16px;
             font-weight: 600;
-            transition: all 0.3s ease;
-            opacity: 0;
-            transform: translateY(10px);
-            pointer-events: none;
-        }
-
-        .btn.visible {
-            opacity: 1;
-            transform: translateY(0);
-            pointer-events: auto;
+            text-decoration: none;
+            padding: 16px 48px;
+            border-radius: 8px;
+            min-width: 220px;
+            text-align: center;
+            transition: background 0.2s;
         }
 
         .btn:hover {
-            background: var(--primary-light);
-            box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.4);
-            transform: translateY(-2px);
+            background: #0f172a;
         }
 
-        /* Success State */
-        .success .spinner { display: none; }
-        .success .check-icon { display: block; color: var(--success); }
-        .success h1 { color: var(--text-main); }
+        .error .btn {
+            background: #ef4444;
+        }
 
-        /* Error State */
-        .error .spinner { display: none; }
-        .error .cross-icon { display: block; color: var(--error); }
-        .error h1 { color: var(--text-main); }
+        .error .btn:hover {
+            background: #dc2626;
+        }
+
+        .status.success h2,
+        .status.success p {
+            color: #1f2a44;
+        }
+
+        .status.error h2 {
+            color: #ef4444;
+        }
+
+        .status.error p {
+            color: #334155;
+        }
+
+        .footer {
+            background: #f1f5f9;
+            padding: 24px;
+            text-align: center;
+            font-size: 13px;
+            color: #64748b;
+        }
+
+        @media (max-width: 500px) {
+            .card-wrapper {
+                border-radius: 0;
+            }
+
+            .content {
+                padding: 32px 20px;
+            }
+
+            .btn {
+                min-width: 100%;
+                padding: 16px 24px;
+            }
+        }
     </style>
 </head>
+
 <body>
-    <div class="container">
-        <div class="card success" id="statusCard">
-            <div class="status-icon">
-                <svg class="check-icon" style="display: block; color: var(--success);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                </svg>
-                <svg class="cross-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-            </div>
-            <h1 id="title">Authenticated!</h1>
-            <p id="message">Your account has been successfully verified. You can now return to the app and continue your journey.</p>
-            <a href="pressup://auth-callback" class="btn visible" id="actionBtn">Open PressUp App</a>
-        </div>
-    </div>
+
+    <table class="outer-table" cellpadding="0" cellspacing="0">
+        <tr>
+            <td align="center">
+
+                <table class="card-wrapper" cellpadding="0" cellspacing="0">
+                    <!-- Header -->
+                    <tr>
+                        <td class="header">
+                            <img src="https://raw.githubusercontent.com/nirwana-tim/rest-api-pressup/refs/heads/main/email/icon.webp"
+                                alt="PressUp Logo" />
+                            <h1>PressUp</h1>
+                        </td>
+                    </tr>
+
+                    <!-- Content -->
+                    <tr>
+                        <td class="content" id="statusContent">
+
+                            <div class="icon-container">
+                                <!-- Default: spinner (akan diganti JS) -->
+                                <svg class="icon spinner" id="spinner" viewBox="0 0 50 50">
+                                    <circle cx="25" cy="25" r="20" fill="none" stroke="#2dd4c0" stroke-width="5"
+                                        stroke-dasharray="31.4 31.4" stroke-linecap="round">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 25 25"
+                                            to="360 25 25" dur="1s" repeatCount="indefinite" />
+                                    </circle>
+                                </svg>
+
+                                <!-- Success icon -->
+                                <svg class="icon" id="checkIcon" style="display:none;" viewBox="0 0 24 24" fill="none"
+                                    stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg>
+
+                                <!-- Error icon -->
+                                <svg class="icon" id="crossIcon" style="display:none;" viewBox="0 0 24 24" fill="none"
+                                    stroke="#ef4444" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </div>
+
+                            <h2 id="title">Authenticating...</h2>
+                            <p id="message">Please wait while we verify your authentication.</p>
+
+                            <a href="pressup://auth-callback" class="btn" id="actionBtn" style="display:none;">
+                                Open PressUp App
+                            </a>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td class="footer">
+                            © 2026 PressUp. All rights reserved.<br>
+                            Karawang, Indonesia
+                        </td>
+                    </tr>
+                </table>
+
+            </td>
+        </tr>
+    </table>
 
     <script>
-        function handleAuth() {
-            const card = document.getElementById('statusCard');
+        function updateUI(isSuccess, message = '') {
+            const spinner = document.getElementById('spinner');
+            const check = document.getElementById('checkIcon');
+            const cross = document.getElementById('crossIcon');
             const title = document.getElementById('title');
-            const message = document.getElementById('message');
+            const msg = document.getElementById('message');
             const btn = document.getElementById('actionBtn');
-            const checkIcon = document.querySelector('.check-icon');
-            const crossIcon = document.querySelector('.cross-icon');
+            const container = document.getElementById('statusContent');
 
-            // Check for error in URL query params
+            spinner.style.display = 'none';
+
+            if (isSuccess) {
+                check.style.display = 'block';
+                title.textContent = 'Authenticated!';
+                msg.textContent = message || 'Your account has been successfully verified. You can now return to the app.';
+                btn.style.display = 'inline-block';
+                container.classList.add('success');
+            } else {
+                cross.style.display = 'block';
+                title.textContent = 'Authentication Failed';
+                msg.textContent = message || 'Something went wrong during authentication.';
+                btn.textContent = 'Back to App';
+                btn.style.display = 'inline-block';
+                container.classList.add('error');
+            }
+        }
+
+        window.onload = function () {
             const params = new URLSearchParams(window.location.search);
             const error = params.get('error_description') || params.get('error');
 
             if (error) {
-                card.classList.remove('success');
-                card.classList.add('error');
-                title.innerText = 'Authentication Failed';
-                message.innerText = error;
-                btn.innerText = 'Back to App';
-                checkIcon.style.display = 'none';
-                crossIcon.style.display = 'block';
+                updateUI(false, error);
             } else {
-                // Success state is already the default now
-                // Attempt auto-redirect to app if on mobile
+                updateUI(true);
+
+                // Auto redirect attempt (mobile deep link)
                 setTimeout(() => {
                     window.location.href = "pressup://auth-callback";
-                }, 1000);
+                }, 1200);
             }
-        }
-
-        window.onload = handleAuth;
+        };
     </script>
+
 </body>
+
 </html>
