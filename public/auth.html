@@ -147,58 +147,48 @@
 </head>
 <body>
     <div class="container">
-        <div class="card" id="statusCard">
+        <div class="card success" id="statusCard">
             <div class="status-icon">
-                <div class="spinner" id="spinner"></div>
-                <svg class="check-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="check-icon" style="display: block; color: var(--success);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                 </svg>
                 <svg class="cross-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
             </div>
-            <h1 id="title">Authenticating...</h1>
-            <p id="message">Please wait while we verify your credentials and secure your account.</p>
-            <a href="pressup://auth-callback" class="btn" id="actionBtn">Open PressUp App</a>
+            <h1 id="title">Authenticated!</h1>
+            <p id="message">Your account has been successfully verified. You can now return to the app and continue your journey.</p>
+            <a href="pressup://auth-callback" class="btn visible" id="actionBtn">Open PressUp App</a>
         </div>
     </div>
 
     <script>
-        async function handleAuth() {
+        function handleAuth() {
             const card = document.getElementById('statusCard');
             const title = document.getElementById('title');
             const message = document.getElementById('message');
             const btn = document.getElementById('actionBtn');
+            const checkIcon = document.querySelector('.check-icon');
+            const crossIcon = document.querySelector('.cross-icon');
 
-            try {
-                // If there's an error in the hash/query, show it immediately
-                const params = new URLSearchParams(window.location.search);
-                const error = params.get('error_description') || params.get('error');
-                
-                if (error) {
-                    throw new Error(error);
-                }
+            // Check for error in URL query params
+            const params = new URLSearchParams(window.location.search);
+            const error = params.get('error_description') || params.get('error');
 
-                // In a real scenario, Supabase handles the hash fragment automatically
-                // We just need to wait a small moment for Supabase to process URL
-                await new Promise(resolve => setTimeout(resolve, 2000));
-
-                card.classList.add('success');
-                title.innerText = 'Authenticated!';
-                message.innerText = 'Your account has been successfully verified. You can now return to the app and continue your journey.';
-                btn.classList.add('visible');
-                
+            if (error) {
+                card.classList.remove('success');
+                card.classList.add('error');
+                title.innerText = 'Authentication Failed';
+                message.innerText = error;
+                btn.innerText = 'Back to App';
+                checkIcon.style.display = 'none';
+                crossIcon.style.display = 'block';
+            } else {
+                // Success state is already the default now
                 // Attempt auto-redirect to app if on mobile
                 setTimeout(() => {
                     window.location.href = "pressup://auth-callback";
-                }, 1500);
-
-            } catch (err) {
-                card.classList.add('error');
-                title.innerText = 'Authentication Failed';
-                message.innerText = err.message || 'Something went wrong while verifying your account. Please try requesting a new link.';
-                btn.innerText = 'Back to App';
-                btn.classList.add('visible');
+                }, 1000);
             }
         }
 
