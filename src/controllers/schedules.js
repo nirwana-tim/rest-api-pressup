@@ -27,7 +27,7 @@ export const getSchedule = async (req, res) => {
 // ================================
 export const saveSchedule = async (req, res) => {
     try {
-        const { presentation_date } = req.body
+        const { presentation_date, notification_id } = req.body
 
         if (!presentation_date) {
             return res.status(400).json({ error: 'presentation_date wajib diisi' })
@@ -52,11 +52,16 @@ export const saveSchedule = async (req, res) => {
 
         let data, error
 
+        const payload = {
+            presentation_date: parsedDate.toISOString(),
+            ...(notification_id && { notification_id })
+        }
+
         if (existing.data) {
             // Update jadwal yang sudah ada
             const result = await supabaseAdmin
                 .from('schedules')
-                .update({ presentation_date: parsedDate.toISOString() })
+                .update(payload)
                 .eq('id', existing.data.id)
                 .select()
                 .maybeSingle()
@@ -68,7 +73,7 @@ export const saveSchedule = async (req, res) => {
                 .from('schedules')
                 .insert({
                     user_id: req.user.id,
-                    presentation_date: parsedDate.toISOString(),
+                    ...payload
                 })
                 .select()
                 .maybeSingle()
