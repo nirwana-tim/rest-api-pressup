@@ -5,6 +5,13 @@ import { supabaseAdmin } from '../config/supabase.js'
 // ================================
 export const getSchedule = async (req, res) => {
     try {
+        console.log(`[GET_SCHEDULE] User: ${req.user?.id}`)
+
+        if (!req.user?.id) {
+            console.error('[GET_SCHEDULE] User ID missing in request')
+            return res.status(401).json({ error: 'User tidak teridentifikasi' })
+        }
+
         const { data, error } = await supabaseAdmin
             .from('schedules')
             .select('*')
@@ -13,11 +20,17 @@ export const getSchedule = async (req, res) => {
             .limit(1)
             .maybeSingle()
 
-        if (error) throw error
+        if (error) {
+            console.error('[GET_SCHEDULE] Supabase error:', error.message)
+            throw error
+        }
+        
+        console.log('[GET_SCHEDULE] Data found:', data ? 'Yes' : 'No')
         if (!data) return res.json({ schedule: null })
 
         res.json({ schedule: data })
     } catch (err) {
+        console.error('[GET_SCHEDULE] Crash:', err.message)
         res.status(500).json({ error: err.message })
     }
 }
