@@ -1,5 +1,15 @@
 import { supabaseAdmin } from '../config/supabase.js'
 
+const verifySessionOwnership = async (sessionId, userId) => {
+    const { data } = await supabaseAdmin
+        .from('game_sessions')
+        .select('id')
+        .eq('id', sessionId)
+        .eq('user_id', userId)
+        .maybeSingle()
+    return data
+}
+
 // ================================
 // GAME SESSIONS
 // ================================
@@ -74,13 +84,7 @@ export const postRecording = async (req, res) => {
             return res.status(400).json({ error: 'Cannot read image (this model does not support image input).' })
         }
 
-        const { data: session } = await supabaseAdmin
-            .from('game_sessions')
-            .select('id')
-            .eq('id', session_id)
-            .eq('user_id', req.user.id)
-            .maybeSingle()
-
+        const session = await verifySessionOwnership(session_id, req.user.id)
         if (!session) return res.status(404).json({ error: 'Session not found or forbidden' })
 
         const { data, error } = await supabaseAdmin
@@ -104,14 +108,7 @@ export const postFeedback = async (req, res) => {
     try {
         const { session_id, eye_score, voice_score, filler_score, content_score, confidence_score, summary, improvement_tips } = req.body
 
-        // Verify session belongs to user
-        const { data: session } = await supabaseAdmin
-            .from('game_sessions')
-            .select('id')
-            .eq('id', session_id)
-            .eq('user_id', req.user.id)
-            .maybeSingle()
-
+        const session = await verifySessionOwnership(session_id, req.user.id)
         if (!session) return res.status(404).json({ error: 'Session not found or forbidden' })
 
         const { data, error } = await supabaseAdmin
@@ -131,14 +128,7 @@ export const getSessionFeedback = async (req, res) => {
     try {
         const { session_id } = req.params
 
-        // Verify session belongs to user
-        const { data: session } = await supabaseAdmin
-            .from('game_sessions')
-            .select('id')
-            .eq('id', session_id)
-            .eq('user_id', req.user.id)
-            .maybeSingle()
-
+        const session = await verifySessionOwnership(session_id, req.user.id)
         if (!session) return res.status(404).json({ error: 'Session not found or forbidden' })
 
         const { data, error } = await supabaseAdmin
