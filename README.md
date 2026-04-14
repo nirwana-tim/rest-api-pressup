@@ -130,17 +130,35 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ```
 > **Penting**: Gunakan token yang didapat dari hasil `Verify OTP` pada header Authorization.
 
+#### 8. Get Profile (Auth)
+- **Method**: `GET`
+- **URL**: `http://localhost:3000/api/auth/profile`
+- **Headers**: `Authorization: Bearer <token>`
+- **Body**: ❌ Tidak ada
+
 ---
 
 ### 👤 Profil & Progress
 
-#### 7. Get Profile
+#### 9. Get Profile
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/profile`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
+- **Response**:
+```json
+{
+  "profile": {
+    "id": "uuid",
+    "name": "Nama User",
+    "avatar": 1,
+    "xp": 0,
+    "level": 1
+  }
+}
+```
 
-#### 8. Update Profile
+#### 10. Update Profile
 - **Method**: `PUT`
 - **URL**: `http://localhost:3000/api/profile`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -149,15 +167,17 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 {
   "name": "Nama Baru",
   "xp": 150,
-  "level": 2
+  "level": 2,
+  "avatar": 2
 }
 ```
+> **Catatan**: `avatar` hanya boleh bernilai 1 atau 2.
 
 ---
 
 ### 🎮 Game Engine (Sessions & Analytics)
 
-#### 9. Create Game Session
+#### 11. Create Game Session
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/sessions`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -169,13 +189,13 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 }
 ```
 
-#### 10. Get All Sessions
+#### 12. Get All Sessions
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/sessions`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
-#### 11. Update Session Status
+#### 13. Update Session Status
 - **Method**: `PUT`
 - **URL**: `http://localhost:3000/api/game/sessions/<id-session>`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -186,8 +206,9 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
   "total_score": 85.5
 }
 ```
+> **Catatan**: `status` bisa berupa `recording`, `processing`, `completed`, atau `failed`.
 
-#### 12. Save Recording
+#### 14. Save Recording
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/recordings`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -200,8 +221,9 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
   "transcript": "Halo semuanya, hari ini saya akan..."
 }
 ```
+> **Penting**: `audio_url` dan `video_url` harus berupa URL eksternal. Jika mengirim data gambar (base64 atau path file), akan mengembalikan error: `"Cannot read image (this model does not support image input)."`
 
-#### 13. Save Feedback
+#### 15. Save Feedback
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/feedback`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -218,14 +240,15 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
   "improvement_tips": "Coba lihat ke kamera lebih sering."
 }
 ```
+> **Catatan**: Semua score harus bernilai antara 0-100.
 
-#### 14. Get Session Feedback
+#### 16. Get Session Feedback
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/sessions/<id-session>/feedback`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
-#### 15. Get Achievements
+#### 17. Get Achievements
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/achievements`
 - **Headers**: `Authorization: Bearer <token>`
@@ -233,6 +256,32 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 ---
 
+### 📅 Jadwal Presentasi
+
+#### 18. Get Schedule
+- **Method**: `GET`
+- **URL**: `http://localhost:3000/api/schedule`
+- **Headers**: `Authorization: Bearer <token>`
+- **Body**: ❌ Tidak ada
+
+#### 19. Save Schedule
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/schedule`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
+```json
+{
+  "presentation_date": "2026-05-01T10:00:00Z",
+  "notification_id": "notif_123"
+}
+```
+> **Catatan**: `presentation_date` harus berupa tanggal di masa depan.
+
+#### 20. Delete Schedule
+- **Method**: `DELETE`
+- **URL**: `http://localhost:3000/api/schedule`
+- **Headers**: `Authorization: Bearer <token>`
+- **Body**: ❌ Tidak ada
 
 ---
 
@@ -246,9 +295,9 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ```text
 src/
 ├── config/       # Konfigurasi Supabase
-├── controllers/  # Logika bisnis (auth.js, games.js, profiles.js, posts.js)
+├── controllers/  # Logika bisnis (auth.js, games.js, profiles.js, schedules.js)
 ├── middleware/   # Validasi JWT (auth.js)
-└── routes/       # Definisi endpoint (auth.js, games.js, profiles.js, posts.js)
+└── routes/       # Definisi endpoint (auth.js, games.js, profiles.js, schedules.js)
 index.js          # Entry point aplikasi
 ```
 
@@ -258,4 +307,3 @@ index.js          # Entry point aplikasi
 Aplikasi ini dioptimalkan untuk **Vercel**. Pastikan kamu telah mengatur Environment Variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`) di dashboard Vercel.
 
 !!!
-

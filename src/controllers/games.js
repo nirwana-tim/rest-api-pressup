@@ -67,7 +67,13 @@ export const postRecording = async (req, res) => {
     try {
         const { session_id, audio_url, video_url, transcript } = req.body
 
-        // Verify session belongs to user
+        if (audio_url && (audio_url.startsWith('data:image') || audio_url.startsWith('/'))) {
+            return res.status(400).json({ error: 'Cannot read image (this model does not support image input).' })
+        }
+        if (video_url && (video_url.startsWith('data:image') || video_url.startsWith('/'))) {
+            return res.status(400).json({ error: 'Cannot read image (this model does not support image input).' })
+        }
+
         const { data: session } = await supabaseAdmin
             .from('game_sessions')
             .select('id')
