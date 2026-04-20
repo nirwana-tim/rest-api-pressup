@@ -3,12 +3,10 @@ import { supabaseAdmin } from '../config/supabase.js'
 const formatProfileResponse = (data) => ({
     id: data.id,
     name: data.name,
-    avatar: data.avatar,
-    xp: data.xp || 0,
-    level: data.level || 1
+    avatar: data.avatar
 })
 
-const createProfileIfNotExists = async (user) => {
+export const createProfileIfNotExists = async (user) => {
     const { data, error } = await supabaseAdmin
         .from('profiles')
         .select('*')

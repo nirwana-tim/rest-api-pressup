@@ -1,4 +1,5 @@
 import { supabase, supabaseAdmin } from '../config/supabase.js'
+import { createProfileIfNotExists } from './profiles.js'
 
 // ================================
 // REGISTER dengan email & password
@@ -21,6 +22,8 @@ export const register = async (req, res) => {
 
     if (error) return res.status(400).json({ error: error.message })
 
+    // Pastikan profil di tabel profiles juga dibuat
+    const profile = await createProfileIfNotExists(data.user)
 
     res.status(201).json({
       message: 'Registrasi berhasil! Cek email untuk verifikasi.',
@@ -29,7 +32,9 @@ export const register = async (req, res) => {
       user: {
         id: data.user.id,
         email: data.user.email,
-        name: data.user.user_metadata?.name || null
+        name: profile.name,
+        avatar: profile.avatar,
+        provider: data.user.app_metadata?.provider || 'email'
       }
     })
   } catch (err) {
@@ -55,6 +60,9 @@ export const login = async (req, res) => {
 
     if (error) return res.status(401).json({ error: 'Email atau password salah' })
 
+    // Pastikan profil di tabel profiles ada
+    const profile = await createProfileIfNotExists(data.user)
+
     res.json({
       message: 'Login berhasil',
       token: data.session.access_token,
@@ -62,7 +70,8 @@ export const login = async (req, res) => {
       user: {
         id: data.user.id,
         email: data.user.email,
-        name: data.user.user_metadata?.name || null,
+        name: profile.name,
+        avatar: profile.avatar,
         provider: data.user.app_metadata?.provider || 'email'
       }
     })
@@ -88,6 +97,8 @@ export const googleCallback = async (req, res) => {
       return res.status(401).json({ error: 'Token Google tidak valid' })
     }
 
+    // Pastikan profil di tabel profiles ada (upsert data dari Google jika perlu)
+    const profile = await createProfileIfNotExists(user)
 
     res.json({
       message: 'Login Google berhasil',
@@ -96,9 +107,9 @@ export const googleCallback = async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        name: user.user_metadata?.full_name || user.user_metadata?.name || null,
-        avatar: user.user_metadata?.avatar_url || null,
-        provider: 'google'
+        name: profile.name,
+        avatar: profile.avatar,
+        provider: user.app_metadata?.provider || 'google'
       }
     })
   } catch (err) {
@@ -135,12 +146,15 @@ export const refreshToken = async (req, res) => {
 // ================================
 export const getProfile = async (req, res) => {
   try {
+    // Pastikan profil ada
+    const profile = await createProfileIfNotExists(req.user)
+
     res.json({
       user: {
         id: req.user.id,
         email: req.user.email,
-        name: req.user.user_metadata?.full_name || req.user.user_metadata?.name || null,
-        avatar: req.user.user_metadata?.avatar_url || null,
+        name: profile.name,
+        avatar: profile.avatar,
         provider: req.user.app_metadata?.provider || 'email'
       }
     })
