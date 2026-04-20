@@ -191,7 +191,7 @@
             <h1 id="title">Authenticated!</h1>
             <p id="message">Your account has been successfully verified. You can now return to the app and continue your
                 journey.</p>
-            <a href="pressup://auth-callback" class="btn visible" id="actionBtn">Open PressUp App</a>
+            <a href="pressupmobile://auth-callback" class="btn visible" id="actionBtn">Open PressUp App</a>
         </div>
     </div>
 
@@ -204,9 +204,15 @@
             const checkIcon = document.querySelector('.check-icon');
             const crossIcon = document.querySelector('.cross-icon');
 
-            // Check for error in URL query params
+            // 1. Ambil error jika ada (di query params ?)
             const params = new URLSearchParams(window.location.search);
             const error = params.get('error_description') || params.get('error');
+
+            // 2. Ambil token jika ada (di fragment #)
+            const hash = window.location.hash.substring(1);
+            const hashParams = new URLSearchParams(hash);
+            const accessToken = hashParams.get('access_token');
+            const refreshToken = hashParams.get('refresh_token');
 
             if (error) {
                 card.classList.remove('success');
@@ -216,12 +222,18 @@
                 btn.innerText = 'Back to App';
                 checkIcon.style.display = 'none';
                 crossIcon.style.display = 'block';
+                btn.href = "pressupmobile://"; // Kembali ke home saja jika error
             } else {
-                // Success state is already the default now
-                // Attempt auto-redirect to app if on mobile
-                setTimeout(() => {
-                    window.location.href = "pressup://auth-callback";
-                }, 1000);
+                // Success state
+                if (accessToken) {
+                    const deepLink = `pressupmobile://auth-callback?access_token=${accessToken}&refresh_token=${refreshToken || ''}`;
+                    btn.href = deepLink;
+                    
+                    // Auto-redirect ke aplikasi setelah 1 detik
+                    setTimeout(() => {
+                        window.location.href = deepLink;
+                    }, 1500);
+                }
             }
         }
 
