@@ -82,7 +82,7 @@ export const login = async (req, res) => {
 };
 
 // ================================
-// GOOGLE LOGIN - verifikasi token dari Expo
+// GOOGLE LOGIN - verifikasi token dari Expo (API endpoint)
 // ================================
 export const googleCallback = async (req, res) => {
   try {
@@ -104,14 +104,19 @@ export const googleCallback = async (req, res) => {
     // Pastikan profil ada (upsert)
     const profile = await createProfileIfNotExists(user);
 
-    // Build redirect URL ke auth.html dengan token di fragment (#)
-    const frontendBase = process.env.EXPO_PUBLIC_FRONTEND_URL || "";
-    const redirectUrl = `${frontendBase}/auth.html#access_token=${encodeURIComponent(
-      access_token,
-    )}&refresh_token=${encodeURIComponent(refresh_token || "")}`;
-
-    // Redirect ke halaman HTML (tidak mengirim JSON lagi)
-    return res.redirect(redirectUrl);
+    // Kembalikan token yang sudah divalidasi ke client (mobile app expects JSON)
+    return res.json({
+      message: "Google login berhasil",
+      token: access_token,
+      refresh_token: refresh_token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: profile.name,
+        avatar: profile.avatar,
+        provider: user.app_metadata?.provider || "google",
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
