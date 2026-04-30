@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../config/supabase.js'
+import OpenAI from 'openai'
 
 const verifySessionOwnership = async (sessionId, userId) => {
     const { data } = await supabaseAdmin
@@ -161,3 +162,98 @@ export const getAchievements = async (req, res) => {
         res.status(500).json({ error: err.message })
     }
 }
+
+// ================================
+// TRANSCRIPT ANALYSIS
+// ================================
+
+export const analyzeTranscript = async (req, res) => {
+    try {
+        const { session_id } = req.params;
+        const { transcript } = req.body;
+
+        if (!transcript) {
+            return res.status(400).json({ error: 'Transcript is required' });
+        }
+
+        const session = await verifySessionOwnership(session_id, req.user.id);
+        if (!session) return res.status(404).json({ error: 'Session not found or forbidden' });
+
+        // 1. Initialize OpenAI client for Groq
+        const openai = new OpenAI({
+            apiKey: process.env.GROQ_API_KEY,
+            baseURL: "https://api.groq.com/openai/v1",
+        });
+
+        // 2. Ask AI to analyze
+        const prompt = `Anda adalah ahli tata bahasa. Analisis transkrip berikut. Berikan output dalam format JSON dengan struktur:
+{
+  "errors": [
+    {
+      "original_text": "Kata/kalimat yang salah",
+      "corrected_text": "Saran perbaikan dari AI",
+      "error_type": "grammar/pronunciation/filler_word/etc",
+      "explanation": "Alasan kenapa itu salah"
+    }
+  ],
+  "overall_score": 85,
+  "summary": "Ringkasan analisis transkrip."
+}
+Berikan hanya format JSON tanpa teks tambahan.
+`;
+        
+        const aiResponse = await openai.chat.completions.create({
+            model: "openai/gpt-oss-20b",
+            messages: [
+                { role: "system", content: prompt },
+                { role: "user", content: transcript }
+            ],
+            response_format: { type: "json_object" }
+        });
+
+        const analysisText = aiResponse.choices[0].message.content;
+        let analysis;
+        try {
+            analysis = JSON.parse(analysisText);
+        } catch (e) {
+            console.error('Failed to parse AI response:', analysisText);
+            return res.status(500).json({ error: 'AI failed to return valid JSON format' });
+        }
+
+        // 3. Get recording_id for the session
+        const { data: recording, error: recordingError } = await supabaseAdmin
+            .from('recordings')
+            .select('id')
+            .eq('session_id', session_id)
+            .maybeSingle();
+
+        if (recordingError) throw recordingError;
+        if (!recording) return res.status(404).json({ error: 'Recording not found for this session' });
+
+        // 4. Save analysis to transcript_analyses
+        if (analysis.errors && analysis.errors.length > 0) {
+            const insertData = analysis.errors.map(err => ({
+                recording_id: recording.id,
+                ...err
+            }));
+            const { error: insertError } = await supabaseAdmin.from('transcript_analyses').insert(insertData);
+            if (insertError) throw insertError;
+        }
+
+        // 5. Update feedback score
+        const { error: feedbackError } = await supabaseAdmin
+            .from('feedbacks')
+            .update({ 
+                transcript_score: analysis.overall_score || 0,
+                summary: analysis.summary 
+            })
+            .eq('session_id', session_id);
+        
+        if (feedbackError) throw feedbackError;
+
+        return res.status(200).json({ message: "Analysis completed", data: analysis });
+    } catch (err) {
+        console.error('Analysis Error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};

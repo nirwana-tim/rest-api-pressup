@@ -5,7 +5,15 @@ API Backend profesional untuk aplikasi **Press Up**, dibangun dengan performa ti
 - **Stack**: Node.js + Express 5
 - **Database**: [Supabase](https://supabase.com) (PostgreSQL)
 - **Auth**: Supabase JWT (Email/Password & Google OAuth)
+- **AI Integration**: Groq API via `openai` SDK
 - **Infrastructure**: Vercel Serverless Functions
+
+### 📦 Libraries Utama yang Digunakan
+- `express` (^5.2.1): Framework backend utama.
+- `@supabase/supabase-js` (^2.98.0): Client untuk interaksi database & autentikasi.
+- `openai` (^4.0.0+): Digunakan sebagai client untuk menghubungi Groq API (kompatibel).
+- `cors` & `helmet`: Middleware untuk keamanan API.
+- `dotenv`: Manajemen environment variables.
 
 ---
 
@@ -19,12 +27,20 @@ npm install
 ```
 
 ### 2. Konfigurasi Environment
-Buat file `.env` di root project dan isi sesuai dengan `.env.example`:
-```bash
-cp .env.example .env
+Buat file `.env` di root project dan isi dengan format berikut:
+
+```env
+PORT=3000
+SUPABASE_URL=https://<your-project>.supabase.co
+SUPABASE_ANON_KEY=<your-anon-key>
+SUPABASE_SERVICE_KEY=<your-service-role-key>
+JWT_SECRET=<your-jwt-secret>
+JWT_EXPIRES_IN=10d
+GROQ_API_KEY=<your-groq-api-key>
 ```
 > [!IMPORTANT]
-> `SUPABASE_SERVICE_KEY` adalah **service_role key**. Jangan pernah membagikan key ini ke sisi client/frontend karena memiliki akses penuh (bypass RLS).
+> - `SUPABASE_SERVICE_KEY` adalah **service_role key**. Jangan pernah membagikan key ini ke sisi client/frontend karena memiliki akses penuh (bypass RLS).
+> - `GROQ_API_KEY` dibutuhkan untuk fitur **AI Transcript Analysis**.
 
 ### 3. Inisialisasi Database
 Jalankan script SQL yang tersedia di [database_setup.md](./database_setup.md) untuk menyiapkan tabel, trigger, dan sistem keamanan (RLS).
@@ -248,7 +264,19 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
-#### 17. Get Achievements
+#### 17. Analyze Transcript (AI)
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/game/sessions/<id-session>/analyze-transcript`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
+```json
+{
+  "transcript": "Teks transkrip presentasi yang akan dianalisis..."
+}
+```
+> **Catatan**: Endpoint ini menghubungi Groq API untuk mencari kesalahan grammar/filler words, lalu menyimpan detailnya ke tabel `transcript_analyses` dan memperbarui `transcript_score` di tabel `feedbacks`.
+
+#### 18. Get Achievements
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/achievements`
 - **Headers**: `Authorization: Bearer <token>`
@@ -258,13 +286,13 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 ### 📅 Jadwal Presentasi
 
-#### 18. Get Schedule
+#### 19. Get Schedule
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/schedule`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
-#### 19. Save Schedule
+#### 20. Save Schedule
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/schedule`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
@@ -277,7 +305,7 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ```
 > **Catatan**: `presentation_date` harus berupa tanggal di masa depan.
 
-#### 20. Delete Schedule
+#### 21. Delete Schedule
 - **Method**: `DELETE`
 - **URL**: `http://localhost:3000/api/schedule`
 - **Headers**: `Authorization: Bearer <token>`

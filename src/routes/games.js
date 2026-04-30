@@ -6,7 +6,8 @@ import {
     postRecording,
     postFeedback,
     getSessionFeedback,
-    getAchievements
+    getAchievements,
+    analyzeTranscript
 } from '../controllers/games.js'
 import { authenticate } from '../middleware/auth.js'
 
@@ -18,6 +19,7 @@ router.use(authenticate)
 router.post('/sessions', createSession)
 router.get('/sessions', getSessions)
 router.put('/sessions/:id', updateSessionStatus)
+router.post('/sessions/:session_id/analyze-transcript', analyzeTranscript)
 
 // Recordings
 router.post('/recordings', postRecording)
