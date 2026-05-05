@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../config/supabase.js'
 import OpenAI from 'openai'
+import fs from 'fs'
 
 const verifySessionOwnership = async (sessionId, userId) => {
     const { data } = await supabaseAdmin
@@ -254,6 +255,159 @@ Berikan hanya format JSON tanpa teks tambahan.
         return res.status(200).json({ message: "Analysis completed", data: analysis });
     } catch (err) {
         console.error('Analysis Error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// ================================
+// AUDIO ANALYSIS (Upload + Whisper STT + Filler Analysis)
+// ================================
+
+// Daftar filler words Bahasa Indonesia
+const FILLER_WORDS_ID = [
+    'eee', 'emm', 'anu', 'jadi', 'kayak', 'kayaknya', 'gitu', 'gitulah',
+    'kan', 'tuh', 'nah', 'ya', 'yaa', 'hmm', 'apa', 'apaya', 'pokoknya',
+    'sebenarnya', 'sebenernya', 'basically', 'like', 'you know',
+    'ehm', 'eeh', 'umm', 'eem', 'hmmmm', 'hm', 'eh'
+];
+
+export const analyzeAudio = async (req, res) => {
+    try {
+        const { session_id } = req.params;
+        const durationSeconds = parseInt(req.body.duration_seconds) || 0;
+
+        if (!req.file) {
+            return res.status(400).json({ error: 'Audio file is required' });
+        }
+
+        const session = await verifySessionOwnership(session_id, req.user.id);
+        if (!session) return res.status(404).json({ error: 'Session not found or forbidden' });
+
+        // 1. Initialize OpenAI client for Groq
+        const openai = new OpenAI({
+            apiKey: process.env.GROQ_API_KEY,
+            baseURL: "https://api.groq.com/openai/v1",
+        });
+
+        // 2. Transcribe audio menggunakan Groq Whisper
+        let transcript = '';
+        try {
+            const audioFile = fs.createReadStream(req.file.path);
+            const transcription = await openai.audio.transcriptions.create({
+                file: audioFile,
+                model: "whisper-large-v3",
+                language: "id",
+                response_format: "text",
+            });
+            transcript = transcription || '';
+        } catch (whisperErr) {
+            console.error('Whisper transcription failed:', whisperErr);
+            // Cleanup temp file
+            if (req.file.path) fs.unlinkSync(req.file.path);
+            return res.status(500).json({ error: 'Transcription failed: ' + whisperErr.message });
+        }
+
+        // Cleanup temp file setelah transcription
+        if (req.file.path) {
+            try { fs.unlinkSync(req.file.path); } catch {}
+        }
+
+        // 3. Analisis filler words dan kata berulang
+        const words = transcript.toLowerCase()
+            .replace(/[.,!?;:"""''()[\]{}]/g, '')
+            .split(/\s+/)
+            .filter(w => w.length > 0);
+
+        const totalWords = words.length;
+
+        // Hitung filler words
+        const fillerFound = [];
+        const fillerCounts = {};
+        words.forEach(word => {
+            if (FILLER_WORDS_ID.includes(word)) {
+                fillerCounts[word] = (fillerCounts[word] || 0) + 1;
+                if (!fillerFound.includes(word)) fillerFound.push(word);
+            }
+        });
+        const fillerCount = Object.values(fillerCounts).reduce((a, b) => a + b, 0);
+
+        // Hitung kata berulang (muncul > 3 kali, exclude filler & common words)
+        const commonWords = ['yang', 'dan', 'di', 'ini', 'itu', 'untuk', 'dengan', 'dari',
+            'ke', 'saya', 'kita', 'akan', 'bisa', 'ada', 'tidak', 'juga', 'sudah',
+            'pada', 'oleh', 'dalam', 'sebagai', 'atau', 'karena', 'mereka', 'kami',
+            'kalian', 'lalu', 'maka', 'tapi', 'tetapi', 'namun', 'serta'];
+        const wordFrequency = {};
+        words.forEach(word => {
+            if (!FILLER_WORDS_ID.includes(word) && !commonWords.includes(word) && word.length > 2) {
+                wordFrequency[word] = (wordFrequency[word] || 0) + 1;
+            }
+        });
+        const repeatedWords = Object.entries(wordFrequency)
+            .filter(([, count]) => count > 3)
+            .map(([word]) => word);
+
+        // 4. Gunakan Groq untuk analisis lebih dalam (opsional, jika transcript cukup panjang)
+        let aiSummary = '';
+        let overallScore = 0;
+
+        if (totalWords > 10) {
+            try {
+                const analysisPrompt = `Anda adalah ahli analisis presentasi. Analisis transkrip berikut dan berikan output JSON:
+{
+  "overall_score": <skor 0-100 berdasarkan kualitas konten>,
+  "summary": "<ringkasan singkat + saran perbaikan dalam 2-3 kalimat bahasa Indonesia>"
+}
+Berikan hanya JSON tanpa teks tambahan.`;
+
+                const aiResponse = await openai.chat.completions.create({
+                    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+                    messages: [
+                        { role: "system", content: analysisPrompt },
+                        { role: "user", content: transcript }
+                    ],
+                    response_format: { type: "json_object" }
+                });
+
+                const parsed = JSON.parse(aiResponse.choices[0].message.content);
+                overallScore = parsed.overall_score || 0;
+                aiSummary = parsed.summary || '';
+            } catch (aiErr) {
+                console.error('AI analysis failed:', aiErr);
+                // Non-fatal: return data tanpa AI summary
+            }
+        }
+
+        // 5. Save recording ke database
+        try {
+            await supabaseAdmin
+                .from('recordings')
+                .insert({
+                    session_id,
+                    transcript,
+                    audio_url: null,
+                    video_url: null
+                });
+        } catch {}
+
+        // 6. Return hasil lengkap
+        return res.status(200).json({
+            message: "Audio analysis completed",
+            data: {
+                transcript,
+                filler_words: fillerFound,
+                filler_count: fillerCount,
+                repeated_words: repeatedWords,
+                total_words: totalWords,
+                overall_score: overallScore,
+                summary: aiSummary,
+            }
+        });
+    } catch (err) {
+        console.error('Audio Analysis Error:', err);
+        // Cleanup temp file jika error
+        if (req.file && req.file.path) {
+            try { fs.unlinkSync(req.file.path); } catch {}
+        }
         res.status(500).json({ error: err.message });
     }
 };
