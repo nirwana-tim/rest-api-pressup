@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import multer from 'multer'
+import os from 'os'
 import {
     createSession,
     getSessions,
@@ -17,7 +18,7 @@ const router = Router()
 
 // Multer config: simpan file audio ke temp directory
 const upload = multer({
-    dest: 'uploads/',
+    dest: os.tmpdir(),
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
     fileFilter: (req, file, cb) => {
         // Accept audio files
