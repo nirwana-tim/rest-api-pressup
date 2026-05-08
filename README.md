@@ -200,7 +200,6 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 - **Body (raw → JSON)**:
 ```json
 {
-  "topic": "Public Speaking 101",
   "duration": 120
 }
 ```
@@ -232,12 +231,28 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ```json
 {
   "session_id": "<id-session>",
-  "audio_url": "https://storage.com/audio.mp3",
   "video_url": "https://storage.com/video.mp4",
+  "duration": 120,
   "transcript": "Halo semuanya, hari ini saya akan..."
 }
 ```
-> **Penting**: `audio_url` dan `video_url` harus berupa URL eksternal. Jika mengirim data gambar (base64 atau path file), akan mengembalikan error: `"Cannot read image (this model does not support image input)."`
+> **Catatan**: Data akan disimpan ke tabel `audio_recordings` (jika ada `transcript`) dan `video_recordings` (jika ada `video_url`).
+
+#### 14.b Upload Video (Sesaat)
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/videos/upload`
+- **Headers**: `Authorization: Bearer <token>`, `Content-Type: multipart/form-data`
+- **Body (form-data)**:
+  - `video`: File video (mp4, dll)
+- **Response**:
+```json
+{
+  "message": "Video berhasil diunggah sementara",
+  "video_url": "https://...",
+  "path": "temp_videos/..."
+}
+```
+> **Catatan**: Video akan dihapus otomatis oleh server jika sudah berumur 2 hari.
 
 #### 15. Save Feedback
 - **Method**: `POST`
@@ -252,11 +267,18 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
   "filler_score": 90,
   "content_score": 85,
   "confidence_score": 88,
-  "summary": "Presentasi yang bagus, kontak mata perlu ditingkatkan.",
-  "improvement_tips": "Coba lihat ke kamera lebih sering."
+  "summary": "Presentasi yang bagus...",
+  "improvement_tips": "Coba lihat...",
+  "focus_duration": 45.5,
+  "unfocus_duration": 15.2,
+  "avg_volume": 65.5,
+  "tempo": 1,
+  "wpm": 120,
+  "total_words": 240,
+  "repeated_words": ["saya", "dan"]
 }
 ```
-> **Catatan**: Semua score harus bernilai antara 0-100.
+> **Catatan**: Jika data teks kosong akan diisi `'none'`, jika data angka kosong akan diisi `0`. `repeated_words` akan disimpan ke tabel `feedback_repeated_words` secara otomatis.
 
 #### 16. Get Session Feedback
 - **Method**: `GET`
