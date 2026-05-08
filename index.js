@@ -6,6 +6,8 @@ import authRoutes from './src/routes/auth.js'
 import profileRoutes from './src/routes/profiles.js'
 import gameRoutes from './src/routes/games.js'
 import scheduleRoutes from './src/routes/schedules.js'
+import videoRoutes from './src/routes/videos.js'
+import { startVideoCleanupCron } from './src/cron/cleanVideos.js'
 
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -33,6 +35,10 @@ app.use('/api/auth', authRoutes)
 app.use('/api/profile', profileRoutes)
 app.use('/api/game', gameRoutes)
 app.use('/api/schedule', scheduleRoutes)
+app.use('/api/videos', videoRoutes)
+
+// Memulai cron job
+startVideoCleanupCron()
 
 // 404 handler
 app.use((req, res) => res.status(404).json({ error: 'Route tidak ditemukan' }))
