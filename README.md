@@ -9,6 +9,7 @@ API Backend profesional untuk aplikasi **Press Up**, dibangun dengan performa ti
 - **Infrastructure**: Vercel Serverless Functions
 
 ### 📦 Libraries Utama yang Digunakan
+
 - `express` (^5.2.1): Framework backend utama.
 - `@supabase/supabase-js` (^2.98.0): Client untuk interaksi database & autentikasi.
 - `openai` (^4.0.0+): Digunakan sebagai client untuk menghubungi Groq API (kompatibel).
@@ -20,6 +21,7 @@ API Backend profesional untuk aplikasi **Press Up**, dibangun dengan performa ti
 ## 🚀 Memulai (Setup Lokal)
 
 ### 1. Instalasi
+
 ```bash
 git clone <repo-url>
 cd rest-api-pressup
@@ -27,6 +29,7 @@ npm install
 ```
 
 ### 2. Konfigurasi Environment
+
 Buat file `.env` di root project dan isi dengan format berikut:
 
 ```env
@@ -38,14 +41,18 @@ JWT_SECRET=<your-jwt-secret>
 JWT_EXPIRES_IN=10d
 GROQ_API_KEY=<your-groq-api-key>
 ```
+
 > [!IMPORTANT]
+>
 > - `SUPABASE_SERVICE_KEY` adalah **service_role key**. Jangan pernah membagikan key ini ke sisi client/frontend karena memiliki akses penuh (bypass RLS).
 > - `GROQ_API_KEY` dibutuhkan untuk fitur **AI Transcript Analysis**.
 
 ### 3. Inisialisasi Database
+
 Jalankan script SQL yang tersedia di [database_setup.md](./database_setup.md) untuk menyiapkan tabel, trigger, dan sistem keamanan (RLS).
 
 ### 4. Jalankan Aplikasi
+
 ```bash
 npm run dev   # Mode development (dengan nodemon)
 npm start     # Mode production
@@ -60,10 +67,12 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ### 🔐 Autentikasi & Akun
 
 #### 1. Register
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/auth/register`
 - **Headers**: `Content-Type: application/json`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "email": "test@gmail.com",
@@ -73,36 +82,44 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ```
 
 #### 2. Login
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/auth/login`
 - **Headers**: `Content-Type: application/json`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "email": "test@gmail.com",
   "password": "rahasia123"
 }
 ```
+
 > **Catatan**: Simpan `token` dari response untuk digunakan di request selanjutnya sebagai header `Authorization: Bearer <token>`.
 
 #### 3. Google Login
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/auth/google`
 - **Headers**: `Content-Type: application/json`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "access_token": "isi_dengan_google_token_dari_client",
   "refresh_token": "opsional"
 }
 ```
+
 > **Catatan**: Endpoint ini akan secara otomatis membuat entry di tabel `profiles` jika user baru pertama kali login.
 
 #### 4. Refresh Token
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/auth/refresh`
 - **Headers**: `Content-Type: application/json`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "refresh_token": "isi_dengan_refresh_token"
@@ -110,43 +127,53 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ```
 
 #### 5. Forgot Password
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/auth/forgot-password`
 - **Headers**: `Content-Type: application/json`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "email": "test@gmail.com"
 }
 ```
+
 > **Catatan**: Supabase akan mengirimkan kode OTP 6-digit ke email untuk recovery.
 
 #### 6. Verify OTP
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/auth/verify-otp`
 - **Headers**: `Content-Type: application/json`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "email": "test@gmail.com",
   "token": "123456"
 }
 ```
+
 > **Catatan**: Jika berhasil, endpoint ini mengembalikan `access_token` sementara. Simpan token ini untuk digunakan di langkah selanjutnya.
 
 #### 7. Update Password
+
 - **Method**: `PUT`
 - **URL**: `http://localhost:3000/api/auth/update-password`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token_dari_verify_otp>`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "password": "password_baru123"
 }
 ```
+
 > **Penting**: Gunakan token yang didapat dari hasil `Verify OTP` pada header Authorization.
 
 #### 8. Get Profile (Auth)
+
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/auth/profile`
 - **Headers**: `Authorization: Bearer <token>`
@@ -157,11 +184,13 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ### 👤 Profil & Progress
 
 #### 9. Get Profile
+
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/profile`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 - **Response**:
+
 ```json
 {
   "profile": {
@@ -175,10 +204,12 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ```
 
 #### 10. Update Profile
+
 - **Method**: `PUT`
 - **URL**: `http://localhost:3000/api/profile`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "name": "Nama Baru",
@@ -187,17 +218,20 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
   "avatar": 2
 }
 ```
-> **Catatan**: `avatar` hanya boleh bernilai 1 atau 2.
+
+> **Catatan**: `avatar` hanya boleh bernilai 1, 2, atau null.
 
 ---
 
 ### 🎮 Game Engine (Sessions & Analytics)
 
 #### 11. Create Game Session
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/sessions`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "duration": 120
@@ -205,29 +239,35 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ```
 
 #### 12. Get All Sessions
+
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/sessions`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
 #### 13. Update Session Status
+
 - **Method**: `PUT`
 - **URL**: `http://localhost:3000/api/game/sessions/<id-session>`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "status": "completed",
   "total_score": 85.5
 }
 ```
+
 > **Catatan**: `status` bisa berupa `recording`, `processing`, `completed`, atau `failed`.
 
 #### 14. Save Recording
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/recordings`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "session_id": "<id-session>",
@@ -236,15 +276,18 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
   "transcript": "Halo semuanya, hari ini saya akan..."
 }
 ```
+
 > **Catatan**: Data akan disimpan ke tabel `audio_recordings` (jika ada `transcript`) dan `video_recordings` (jika ada `video_url`).
 
 #### 14.b Upload Video (Sesaat)
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/videos/upload`
 - **Headers**: `Authorization: Bearer <token>`, `Content-Type: multipart/form-data`
 - **Body (form-data)**:
   - `video`: File video (mp4, dll)
 - **Response**:
+
 ```json
 {
   "message": "Video berhasil diunggah sementara",
@@ -252,13 +295,16 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
   "path": "temp_videos/..."
 }
 ```
+
 > **Catatan**: Video akan dihapus otomatis oleh server jika sudah berumur 2 hari.
 
 #### 15. Save Feedback
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/feedback`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "session_id": "<id-session>",
@@ -278,27 +324,33 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
   "repeated_words": ["saya", "dan"]
 }
 ```
+
 > **Catatan**: Jika data teks kosong akan diisi `'none'`, jika data angka kosong akan diisi `0`. `repeated_words` akan disimpan ke tabel `feedback_repeated_words` secara otomatis.
 
 #### 16. Get Session Feedback
+
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/sessions/<id-session>/feedback`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
 #### 17. Analyze Transcript (AI)
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/sessions/<id-session>/analyze-transcript`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "transcript": "Teks transkrip presentasi yang akan dianalisis..."
 }
 ```
+
 > **Catatan**: Endpoint ini menghubungi Groq API untuk mencari kesalahan grammar/filler words, lalu menyimpan detailnya ke tabel `transcript_analyses` dan memperbarui `transcript_score` di tabel `feedbacks`.
 
 #### 18. Get Achievements
+
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/achievements`
 - **Headers**: `Authorization: Bearer <token>`
@@ -309,25 +361,30 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ### 📅 Jadwal Presentasi
 
 #### 19. Get Schedule
+
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/schedule`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
 #### 20. Save Schedule
+
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/schedule`
 - **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
 - **Body (raw → JSON)**:
+
 ```json
 {
   "presentation_date": "2026-05-01T10:00:00Z",
   "notification_id": "notif_123"
 }
 ```
+
 > **Catatan**: `presentation_date` harus berupa tanggal di masa depan.
 
 #### 21. Delete Schedule
+
 - **Method**: `DELETE`
 - **URL**: `http://localhost:3000/api/schedule`
 - **Headers**: `Authorization: Bearer <token>`
@@ -336,12 +393,14 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 ---
 
 ## 🔐 Keamanan & Autentikasi
+
 - **RLS (Row Level Security)**: Aktif di Supabase. User secara otomatis diproteksi agar hanya bisa CRUD data miliknya sendiri.
 - **JWT**: Token bersifat stateless. Gunakan `refresh_token` jika access token expired (biasanya 1 jam).
 
 ---
 
 ## 🗂️ Struktur Folder
+
 ```text
 src/
 ├── config/       # Konfigurasi Supabase
@@ -354,5 +413,7 @@ index.js          # Entry point aplikasi
 ---
 
 ## ☁️ Deployment
+
 Aplikasi ini dioptimalkan untuk **Vercel**. Pastikan kamu telah mengatur Environment Variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`) di dashboard Vercel.
 
+?

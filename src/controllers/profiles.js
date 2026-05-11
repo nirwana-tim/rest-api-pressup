@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js'
 const formatProfileResponse = (data) => ({
     id: data.id,
     name: data.name,
-    avatar: data.avatar
+    avatar: data.avatar_url ? parseInt(data.avatar_url, 10) : null
 })
 
 export const createProfileIfNotExists = async (user) => {
@@ -13,7 +13,7 @@ export const createProfileIfNotExists = async (user) => {
         .eq('id', user.id)
         .maybeSingle()
 
-    if (data) return data
+    if (data) return { ...data, avatar: data.avatar_url ? parseInt(data.avatar_url, 10) : null }
     if (error) throw error
 
     const { data: newProfile, error: insertError } = await supabaseAdmin
@@ -22,13 +22,13 @@ export const createProfileIfNotExists = async (user) => {
             id: user.id,
             name: user.user_metadata?.full_name || user.user_metadata?.name || 'User',
             email: user.email,
-            avatar: null
+            avatar_url: null
         })
         .select()
         .maybeSingle()
 
     if (insertError) throw insertError
-    return newProfile
+    return { ...newProfile, avatar: newProfile.avatar_url ? parseInt(newProfile.avatar_url, 10) : null }
 }
 
 // ================================
@@ -55,7 +55,7 @@ export const updateProfile = async (req, res) => {
             if (avatar !== null && ![1, 2].includes(avatar)) {
                 return res.status(400).json({ error: 'Avatar harus bernilai 1, 2, atau null' })
             }
-            updates.avatar = avatar
+            updates.avatar_url = avatar ? String(avatar) : null
         }
 
         if (Object.keys(updates).length === 0) {
@@ -78,7 +78,7 @@ export const updateProfile = async (req, res) => {
                     id: req.user.id,
                     name: req.user.user_metadata?.full_name || req.user.user_metadata?.name || 'User',
                     email: req.user.email,
-                    avatar: null,
+                    avatar_url: null,
                     ...updates
                 })
                 .select()

@@ -1,14 +1,14 @@
 import { Router } from 'express'
 import multer from 'multer'
+import os from 'os'
 import { uploadVideo } from '../controllers/videos.js'
 import { authenticate } from '../middleware/auth.js'
 
 const router = Router()
 
-// Konfigurasi multer menggunakan memory storage
-const storage = multer.memoryStorage()
+// Multer config: simpan file ke temp directory (lebih aman untuk file besar)
 const upload = multer({
-    storage: storage,
+    dest: os.tmpdir(),
     limits: { fileSize: 50 * 1024 * 1024 }, // Limit 50MB (bisa disesuaikan)
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('video/')) {

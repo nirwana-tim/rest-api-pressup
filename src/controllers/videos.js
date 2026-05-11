@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../config/supabase.js'
+import fs from 'fs'
 
 export const uploadVideo = async (req, res) => {
     try {
@@ -11,12 +12,18 @@ export const uploadVideo = async (req, res) => {
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
         const filePath = `temp_videos/${fileName}`
 
+        // Baca file dari disk
+        const fileBuffer = fs.readFileSync(file.path)
+
         const { data, error } = await supabaseAdmin.storage
             .from('videos') // Pastikan bucket 'videos' sudah ada di Supabase
-            .upload(filePath, file.buffer, {
+            .upload(filePath, fileBuffer, {
                 contentType: file.mimetype,
                 upsert: false
             })
+
+        // Hapus file temporary setelah upload
+        try { fs.unlinkSync(file.path); } catch {}
 
         if (error) throw error
 
@@ -30,6 +37,10 @@ export const uploadVideo = async (req, res) => {
             path: filePath
         })
     } catch (err) {
+        // Hapus file temporary jika error
+        if (req.file && req.file.path) {
+            try { fs.unlinkSync(req.file.path); } catch {}
+        }
         res.status(500).json({ error: err.message })
     }
 }
