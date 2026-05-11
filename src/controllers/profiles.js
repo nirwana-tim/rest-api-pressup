@@ -27,7 +27,19 @@ export const createProfileIfNotExists = async (user) => {
         .select()
         .maybeSingle()
 
-    if (insertError) throw insertError
+    if (insertError) {
+        if (insertError.code === '23505') {
+            const { data: retryData } = await supabaseAdmin
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .maybeSingle()
+            if (retryData) {
+                return { ...retryData, avatar: retryData.avatar_url ? parseInt(retryData.avatar_url, 10) : null }
+            }
+        }
+        throw insertError
+    }
     return { ...newProfile, avatar: newProfile.avatar_url ? parseInt(newProfile.avatar_url, 10) : null }
 }
 
