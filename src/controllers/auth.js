@@ -20,7 +20,17 @@ export const register = async (req, res) => {
       },
     });
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (error) {
+      let message = error.message;
+      if (message === "User already registered") {
+        message = "Email sudah terdaftar. Silakan gunakan email lain atau masuk.";
+      }
+      return res.status(400).json({ error: message });
+    }
+
+    if (!data.user) {
+      return res.status(400).json({ error: "Gagal mendaftarkan user, silakan coba lagi" });
+    }
 
     // Pastikan profil di tabel profiles juga dibuat
     const profile = await createProfileIfNotExists(data.user);
@@ -38,7 +48,12 @@ export const register = async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Register Error:", err);
+    let message = err.message;
+    if (message.includes('profiles_id_fkey')) {
+      message = "Email sudah terdaftar. Silakan gunakan email lain atau masuk.";
+    }
+    res.status(500).json({ error: message });
   }
 };
 
@@ -58,8 +73,13 @@ export const login = async (req, res) => {
       password,
     });
 
-    if (error)
-      return res.status(401).json({ error: "Email atau password salah" });
+    if (error) {
+      let message = "Email atau password salah";
+      if (error.message === "Email not confirmed") {
+        message = "Email belum dikonfirmasi. Silakan cek inbox email Anda.";
+      }
+      return res.status(401).json({ error: message });
+    }
 
     // Pastikan profil di tabel profiles ada
     const profile = await createProfileIfNotExists(data.user);

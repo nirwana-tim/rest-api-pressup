@@ -28,6 +28,7 @@ export const createProfileIfNotExists = async (user) => {
         .maybeSingle()
 
     if (insertError) {
+        // 23505 = unique_violation (id sudah ada)
         if (insertError.code === '23505') {
             const { data: retryData } = await supabaseAdmin
                 .from('profiles')
@@ -38,6 +39,12 @@ export const createProfileIfNotExists = async (user) => {
                 return { ...retryData, avatar: retryData.avatar_url ? parseInt(retryData.avatar_url, 10) : null }
             }
         }
+
+        // 23503 = foreign_key_violation (profiles_id_fkey)
+        if (insertError.code === '23503' || insertError.message.includes('profiles_id_fkey')) {
+            throw new Error("Email sudah terdaftar atau akun sedang diproses.");
+        }
+
         throw insertError
     }
     return { ...newProfile, avatar: newProfile.avatar_url ? parseInt(newProfile.avatar_url, 10) : null }
