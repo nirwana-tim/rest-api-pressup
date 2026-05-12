@@ -258,7 +258,7 @@ Berikan hanya format JSON tanpa teks tambahan.
 `;
         
         const aiResponse = await openai.chat.completions.create({
-            model: "openai/gpt-oss-20b",
+            model: "llama-3.3-70b-versatile",
             messages: [
                 { role: "system", content: prompt },
                 { role: "user", content: transcript }
@@ -349,7 +349,7 @@ export const analyzeAudio = async (req, res) => {
             const audioFile = fs.createReadStream(req.file.path);
             const transcription = await openai.audio.transcriptions.create({
                 file: audioFile,
-                model: "whisper-large-v3",
+                model: "whisper-large-v3-turbo",
                 language: "id",
                 response_format: "text",
             });
@@ -414,7 +414,7 @@ export const analyzeAudio = async (req, res) => {
 Berikan hanya JSON tanpa teks tambahan.`;
 
                 const aiResponse = await openai.chat.completions.create({
-                    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+                    model: "llama-3.3-70b-versatile",
                     messages: [
                         { role: "system", content: analysisPrompt },
                         { role: "user", content: transcript }
