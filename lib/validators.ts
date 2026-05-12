@@ -4,7 +4,7 @@ const MAX_AUDIO_DURATION_SECONDS = Number(
   process.env.MAX_AUDIO_DURATION_SECONDS ?? 900,
 );
 
-const ALLOWED_SUPABASE_HOST = process.env.ALLOWED_SUPABASE_HOST;
+const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_AUDIO_BUCKET =
   process.env.SUPABASE_AUDIO_BUCKET ?? "session-audios";
 
@@ -31,7 +31,7 @@ export function validateSupabaseAudioUrl(audioUrl: string): URL {
     throw new Error("Audio URL must use HTTPS");
   }
 
-  if (ALLOWED_SUPABASE_HOST && url.hostname !== ALLOWED_SUPABASE_HOST) {
+  if (SUPABASE_URL && url.hostname !== SUPABASE_URL) {
     throw new Error("Audio URL host is not allowed");
   }
 
