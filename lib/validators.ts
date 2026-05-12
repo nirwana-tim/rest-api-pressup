@@ -8,6 +8,18 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_AUDIO_BUCKET =
   process.env.SUPABASE_AUDIO_BUCKET ?? "session-audios";
 
+function getSupabaseHostname(): string | undefined {
+  if (!SUPABASE_URL) {
+    return undefined;
+  }
+
+  try {
+    return new URL(SUPABASE_URL).hostname;
+  } catch {
+    return SUPABASE_URL.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  }
+}
+
 export const analyzeAudioSchema = z.object({
   sessionId: z
     .string()
@@ -31,7 +43,9 @@ export function validateSupabaseAudioUrl(audioUrl: string): URL {
     throw new Error("Audio URL must use HTTPS");
   }
 
-  if (SUPABASE_URL && url.hostname !== SUPABASE_URL) {
+  const supabaseHostname = getSupabaseHostname();
+
+  if (supabaseHostname && url.hostname !== supabaseHostname) {
     throw new Error("Audio URL host is not allowed");
   }
 

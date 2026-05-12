@@ -7,6 +7,7 @@ import profileRoutes from './src/routes/profiles.js'
 import gameRoutes from './src/routes/games.js'
 import scheduleRoutes from './src/routes/schedules.js'
 import videoRoutes from './src/routes/videos.js'
+import audioRoutes from './src/routes/audio.js'
 import { startVideoCleanupCron } from './src/cron/cleanVideos.js'
 
 import path from 'path'
@@ -34,6 +35,7 @@ app.get('/auth.html', (req, res) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/profile', profileRoutes)
 app.use('/api/game', gameRoutes)
+app.use('/api/analyze-audio', audioRoutes)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/videos', videoRoutes)
 
