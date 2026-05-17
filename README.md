@@ -40,12 +40,15 @@ SUPABASE_SERVICE_KEY=<your-service-role-key>
 JWT_SECRET=<your-jwt-secret>
 JWT_EXPIRES_IN=10d
 GROQ_API_KEY=<your-groq-api-key>
+PROCESSOR_API_URL=http://localhost:3001
+API_SECRET_KEY=pressup_secret_secure_key_2026
 ```
 
 > [!IMPORTANT]
 >
 > - `SUPABASE_SERVICE_KEY` adalah **service_role key**. Jangan pernah membagikan key ini ke sisi client/frontend karena memiliki akses penuh (bypass RLS).
-> - `GROQ_API_KEY` dibutuhkan untuk fitur **AI Transcript Analysis**.
+> - `PROCESSOR_API_URL` mengarah ke service **rest-api-pressup 2** yang menangani pemrosesan audio berat (transkripsi AssemblyAI & analisis Groq) di belakang layar.
+> - `API_SECRET_KEY` adalah kunci rahasia bersama (Shared Secret) untuk mengamankan webhook dari API 1 ke API 2.
 
 ### 3. Inisialisasi Database
 
@@ -57,6 +60,8 @@ Jalankan script SQL yang tersedia di [database_setup.md](./database_setup.md) un
 npm run dev   # Mode development (dengan nodemon)
 npm start     # Mode production
 ```
+
+> **Catatan Arsitektur**: Untuk fitur pemrosesan audio, pastikan **rest-api-pressup 2** juga berjalan secara bersamaan di port 3001. API 1 akan mendelegasikan tugas pemrosesan audio ke API 2 agar response ke mobile lebih cepat.
 
 ---
 
@@ -279,7 +284,7 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 > **Catatan**: Data akan disimpan ke tabel `audio_recordings` (jika ada `transcript`) dan `video_recordings` (jika ada `video_url`).
 
-#### 14.b Upload Video (Sesaat)
+#### 15. Upload Video (Sesaat)
 
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/videos/upload`
@@ -298,7 +303,36 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 > **Catatan**: Video akan dihapus otomatis oleh server jika sudah berumur 2 hari.
 
-#### 15. Save Feedback
+#### 16. Trigger Audio Processing (Async)
+
+- **Method**: `POST`
+- **URL**: `http://localhost:3000/api/analyze-audio`
+- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
+- **Body (raw → JSON)**:
+
+```json
+{
+  "sessionId": "<id-session>",
+  "audio_url": "https://<your-project>.supabase.co/storage/v1/object/public/session-audios/file.m4a",
+  "duration": 120
+}
+```
+
+- **Response (202 Accepted)**:
+
+```json
+{
+  "message": "Audio received and is being processed asynchronously",
+  "data": {
+    "sessionId": "<id-session>",
+    "status": "processing"
+  }
+}
+```
+
+> **Catatan**: Endpoint ini tidak melakukan proses berat. Ia hanya memverifikasi URL, mengubah status sesi `game_sessions` menjadi `'processing'`, menyimpan status awal ke `audio_recordings`, lalu melempar tugas analisis ke **API 2** menggunakan header `x-api-secret` di belakang layar agar aplikasi Mobile tidak terkena *timeout*. Hasil akhirnya berupa skor dan status `'completed'` akan diperbarui secara otomatis di tabel `game_sessions` dan `feedbacks` setelah proses AI selesai.
+
+#### 17. Save Feedback
 
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/game/feedback`
@@ -327,29 +361,14 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 > **Catatan**: Jika data teks kosong akan diisi `'none'`, jika data angka kosong akan diisi `0`. `repeated_words` akan disimpan ke tabel `feedback_repeated_words` secara otomatis.
 
-#### 16. Get Session Feedback
+#### 18. Get Session Feedback
 
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/sessions/<id-session>/feedback`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
-#### 17. Analyze Transcript (AI)
-
-- **Method**: `POST`
-- **URL**: `http://localhost:3000/api/game/sessions/<id-session>/analyze-transcript`
-- **Headers**: `Content-Type: application/json`, `Authorization: Bearer <token>`
-- **Body (raw → JSON)**:
-
-```json
-{
-  "transcript": "Teks transkrip presentasi yang akan dianalisis..."
-}
-```
-
-> **Catatan**: Endpoint ini menghubungi Groq API untuk mencari kesalahan grammar/filler words, lalu menyimpan detailnya ke tabel `transcript_analyses` dan memperbarui `transcript_score` di tabel `feedbacks`.
-
-#### 18. Get Achievements
+#### 19. Get Achievements
 
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/game/achievements`
@@ -360,14 +379,14 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 ### 📅 Jadwal Presentasi
 
-#### 19. Get Schedule
+#### 20. Get Schedule
 
 - **Method**: `GET`
 - **URL**: `http://localhost:3000/api/schedule`
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: ❌ Tidak ada
 
-#### 20. Save Schedule
+#### 21. Save Schedule
 
 - **Method**: `POST`
 - **URL**: `http://localhost:3000/api/schedule`
@@ -383,7 +402,7 @@ Gunakan panduan ini untuk mengetes seluruh fitur API secara berurutan.
 
 > **Catatan**: `presentation_date` harus berupa tanggal di masa depan.
 
-#### 21. Delete Schedule
+#### 22. Delete Schedule
 
 - **Method**: `DELETE`
 - **URL**: `http://localhost:3000/api/schedule`

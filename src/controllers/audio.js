@@ -1,4 +1,3 @@
-import Groq from 'groq-sdk'
 import { z } from 'zod'
 import { supabaseAdmin } from '../config/supabase.js'
 
@@ -6,11 +5,6 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024
 const MAX_AUDIO_DURATION_SECONDS = Number(process.env.MAX_AUDIO_DURATION_SECONDS ?? 900)
 const SUPABASE_AUDIO_BUCKET = process.env.SUPABASE_AUDIO_BUCKET ?? 'session-audios'
 const AUDIO_FETCH_TIMEOUT_MS = 30_000
-const AI_TIMEOUT_MS = 60_000
-
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-})
 
 const analyzeAudioSchema = z.object({
   sessionId: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/),
@@ -114,89 +108,38 @@ async function validateRemoteAudio(audioUrl) {
   }
 }
 
-async function transcribeAudio(audioUrl) {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS)
-
-  try {
-    const transcription = await groq.audio.transcriptions.create(
-      {
-        url: audioUrl,
-        model: 'whisper-large-v3-turbo',
-        language: 'id',
-        response_format: 'json',
-        temperature: 0,
-      },
-      {
-        signal: controller.signal,
-      },
-    )
-
-    return transcription.text ?? ''
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-function analyzeTranscriptText(transcript) {
-  const words = transcript
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-
-  const fillerDictionary = new Set([
-    'eh',
-    'em',
-    'emm',
-    'hmm',
-    'anu',
-    'jadi',
-    'kayak',
-    'seperti',
-  ])
-
-  const filler_words = words.filter((word) => fillerDictionary.has(word))
-  const repeated_words = []
-
-  for (let index = 1; index < words.length; index += 1) {
-    if (words[index] === words[index - 1]) {
-      repeated_words.push(words[index])
-    }
-  }
-
-  const filler_count = filler_words.length
-  const total_words = words.length
-  const penalty = Math.min(60, filler_count * 3 + repeated_words.length * 2)
-  const overall_score = Math.max(40, 100 - penalty)
-
-  return {
-    transcript,
-    filler_words,
-    filler_count,
-    repeated_words,
-    total_words,
-    overall_score,
-    summary:
-      filler_count > 0
-        ? 'Kurangi filler words dan pertahankan struktur kalimat agar penyampaian lebih jelas.'
-        : 'Penyampaian cukup bersih dari filler words. Pertahankan tempo dan artikulasi.',
-  }
-}
-
-async function saveRecording({ sessionId, audioUrl, duration, analysis }) {
-  const { error } = await supabaseAdmin.from('audio_recordings').insert({
+async function saveInitialRecording({ sessionId, audioUrl, duration }) {
+  const { data, error } = await supabaseAdmin.from('audio_recordings').insert({
     session_id: sessionId,
     audio_url: audioUrl,
-    transcript: analysis.transcript,
-    is_processed: true,
-    processing_status: 'completed',
-    processed_at: new Date(),
-    duration_seconds: duration,
-  })
+    is_processed: false,
+    processing_status: 'processing',
+  }).select().maybeSingle()
 
   if (error) {
-    console.warn('[analyze-audio] failed to save recording:', error.message)
+    console.warn('[analyze-audio] failed to save initial recording:', error.message)
+    throw error
+  }
+  
+  return data
+}
+
+async function triggerAsyncProcessing(sessionId, audioUrl, duration) {
+  try {
+    const url = `${process.env.PROCESSOR_API_URL}/api/process-audio`
+    console.log(`[analyze-audio] Triggering async processing at ${url}`)
+    fetch(url, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-api-secret': process.env.API_SECRET_KEY
+      },
+      body: JSON.stringify({ sessionId, audio_url: audioUrl, duration }),
+    }).catch(err => {
+      console.error('[analyze-audio] Background fetch to API 2 failed:', err.message)
+    })
+  } catch (err) {
+    console.error('[analyze-audio] Failed to initiate async trigger:', err.message)
   }
 }
 
@@ -223,19 +166,35 @@ export const analyzeAudioFromStorage = async (req, res) => {
     }
 
     await validateRemoteAudio(input.audio_url)
-    const transcript = await transcribeAudio(input.audio_url)
-    const analysis = analyzeTranscriptText(transcript)
+    
+    // Update game_sessions status to 'processing'
+    const { error: sessionError } = await supabaseAdmin
+      .from('game_sessions')
+      .update({ status: 'processing' })
+      .eq('id', input.sessionId)
+      .eq('user_id', req.user.id)
 
-    await saveRecording({
+    if (sessionError) {
+      console.warn('[analyze-audio] failed to update game session status:', sessionError.message)
+      throw sessionError
+    }
+    
+    // Save initial state to Supabase DB (Processing)
+    const recording = await saveInitialRecording({
       sessionId: input.sessionId,
       audioUrl: input.audio_url,
       duration: input.duration,
-      analysis,
     })
 
-    return res.status(200).json({
-      message: 'Audio analyzed successfully',
-      data: analysis,
+    // Trigger async background processing in API 2
+    triggerAsyncProcessing(input.sessionId, input.audio_url, input.duration)
+
+    return res.status(202).json({
+      message: 'Audio received and is being processed asynchronously',
+      data: {
+        sessionId: input.sessionId,
+        status: 'processing'
+      },
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected server error'
