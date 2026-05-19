@@ -10,6 +10,18 @@ const analyzeAudioSchema = z.object({
   sessionId: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/),
   audio_url: z.string().url(),
   duration: z.number().int().positive().max(MAX_AUDIO_DURATION_SECONDS),
+  telemetry: z.object({
+    eyeContact: z.object({
+      focusScore: z.number().min(0).max(100),
+      focusDuration: z.number().nonnegative(),
+      unfocusDuration: z.number().nonnegative(),
+      events: z.array(z.object({
+        startSecond: z.number().nonnegative(),
+        endSecond: z.number().nonnegative(),
+        status: z.enum(['focused', 'notFocused']),
+      })).default([]),
+    }).optional(),
+  }).optional(),
 })
 
 function getSupabaseHostname() {
@@ -124,7 +136,7 @@ async function saveInitialRecording({ sessionId, audioUrl, duration }) {
   return data
 }
 
-async function triggerAsyncProcessing(sessionId, audioUrl, duration) {
+async function triggerAsyncProcessing(sessionId, audioUrl, duration, telemetry) {
   try {
     const url = `${process.env.PROCESSOR_API_URL}/api/process-audio`
     console.log(`[analyze-audio] Triggering async processing at ${url}`)
@@ -134,7 +146,7 @@ async function triggerAsyncProcessing(sessionId, audioUrl, duration) {
         'Content-Type': 'application/json',
         'x-api-secret': process.env.API_SECRET_KEY
       },
-      body: JSON.stringify({ sessionId, audio_url: audioUrl, duration }),
+      body: JSON.stringify({ sessionId, audio_url: audioUrl, duration, telemetry }),
     }).catch(err => {
       console.error('[analyze-audio] Background fetch to API 2 failed:', err.message)
     })
@@ -187,7 +199,7 @@ export const analyzeAudioFromStorage = async (req, res) => {
     })
 
     // Trigger async background processing in API 2
-    triggerAsyncProcessing(input.sessionId, input.audio_url, input.duration)
+    triggerAsyncProcessing(input.sessionId, input.audio_url, input.duration, input.telemetry)
 
     return res.status(202).json({
       message: 'Audio received and is being processed asynchronously',

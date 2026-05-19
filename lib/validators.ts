@@ -32,6 +32,26 @@ export const analyzeAudioSchema = z.object({
     .int()
     .positive()
     .max(MAX_AUDIO_DURATION_SECONDS),
+  telemetry: z
+    .object({
+      eyeContact: z
+        .object({
+          focusScore: z.number().min(0).max(100),
+          focusDuration: z.number().nonnegative(),
+          unfocusDuration: z.number().nonnegative(),
+          events: z
+            .array(
+              z.object({
+                startSecond: z.number().nonnegative(),
+                endSecond: z.number().nonnegative(),
+                status: z.enum(["focused", "notFocused"]),
+              }),
+            )
+            .default([]),
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
 export type AnalyzeAudioInput = z.infer<typeof analyzeAudioSchema>;
