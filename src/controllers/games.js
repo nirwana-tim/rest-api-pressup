@@ -177,6 +177,189 @@ export const postFeedback = async (req, res) => {
     }
 }
 
+function statusFromScore(score) {
+  if (score >= 80) return 'good';
+  if (score >= 60) return 'warning';
+  return 'bad';
+}
+
+function formatDuration(seconds = 0) {
+  const safeSeconds = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const secs = String(safeSeconds % 60).padStart(2, '0');
+  return `${minutes}:${secs}`;
+}
+
+function buildTranscriptTokens(transcriptText, fillerWords = [], repeatedWords = []) {
+  const fillerSet = new Set(fillerWords.map(word => String(word).toLowerCase()));
+  const repeatedSet = new Set(repeatedWords.map(word => String(word).toLowerCase()));
+
+  return (transcriptText || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(text => {
+      const normalized = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+      const tags = [];
+      if (fillerSet.has(normalized)) tags.push('filler');
+      if (repeatedSet.has(normalized)) tags.push('waste');
+      return { text, tags };
+    });
+}
+
+function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessionData) {
+  const transcriptText = audioRecording?.transcript || '';
+  const repeatedWords = (repeatedWordsData || []).map(r => r.word);
+  
+  const DEFAULT_FILLERS = ['eh', 'em', 'emm', 'hmm', 'anu'];
+  const wordsList = transcriptText.toLowerCase().replace(/[.,!?;:"""''()[\]{}]/g, '').split(/\s+/).filter(Boolean);
+  const foundFillers = wordsList.filter(w => DEFAULT_FILLERS.includes(w));
+  const fillerCount = feedback.filler_score !== null ? Math.round((100 - feedback.filler_score) / 5) : foundFillers.length;
+  
+  const fillerWordsList = foundFillers.length > 0 ? [...new Set(foundFillers)] : DEFAULT_FILLERS;
+  const fillerCounts = {};
+  foundFillers.forEach(w => {
+    fillerCounts[w] = (fillerCounts[w] || 0) + 1;
+  });
+  
+  const fillerSummary = Object.entries(fillerCounts).map(([word, count]) => ({ word, count }));
+  if (fillerSummary.length === 0 && fillerCount > 0) {
+    fillerSummary.push({ word: 'eh', count: fillerCount });
+    if (!fillerWordsList.includes('eh')) {
+      fillerWordsList.push('eh');
+    }
+  }
+  const topFillers = fillerSummary.slice(0, 2).map(item => `"${item.word}"`).join(' dan ');
+
+  const totalWords = feedback.total_words || wordsList.length;
+  const focusDuration = Number(feedback.focus_duration) || 0;
+  const unfocusDuration = Number(feedback.unfocus_duration) || 0;
+  const durationSeconds = (focusDuration + unfocusDuration) > 0 
+    ? (focusDuration + unfocusDuration) 
+    : (sessionData?.duration ? sessionData.duration * 60 : 60);
+
+  const averageWpm = feedback.wpm || Math.round((totalWords / Math.max(durationSeconds, 1)) * 60);
+  const tempoLabel = averageWpm < 100 ? 'slow' : averageWpm > 160 ? 'fast' : 'normal';
+
+  const eyeScore = feedback.eye_score ?? 0;
+  const intonationScore = feedback.voice_score ?? 0;
+  const fillerScore = feedback.filler_score ?? 0;
+  const wordWasteScore = feedback.word_waste_score ?? 0;
+  const articulationScore = feedback.articulation_score ?? 0;
+
+  const transcript = buildTranscriptTokens(transcriptText, fillerWordsList, repeatedWords);
+
+  return {
+    sessionId: feedback.session_id,
+    overallScore: feedback.overall_score || 0,
+    transcriptText,
+    createdAt: feedback.created_at || new Date().toISOString(),
+    summary: [
+      {
+        id: 'intonation',
+        title: 'Intonasi',
+        score: intonationScore,
+        status: statusFromScore(intonationScore),
+        evaluationNote: 'Intonasi dievaluasi dari kelancaran audio dan variasi penyampaian selama presentasi.'
+      },
+      {
+        id: 'eyeContact',
+        title: 'Kontak Mata',
+        score: eyeScore,
+        status: feedback.eye_score !== null ? statusFromScore(eyeScore) : 'unavailable',
+        evaluationNote: feedback.eye_score !== null
+          ? `Kontak mata terjaga selama ${formatDuration(focusDuration)}, dengan ${formatDuration(unfocusDuration)} momen tidak fokus.`
+          : 'Data kontak mata belum tersedia karena tracking wajah tidak aktif selama sesi.'
+      },
+      {
+        id: 'tempo',
+        title: 'Tempo',
+        score: statusFromScore(averageWpm >= 100 && averageWpm <= 160 ? 90 : 65) === 'good' ? 90 : 65,
+        status: averageWpm >= 100 && averageWpm <= 160 ? 'good' : 'warning',
+        evaluationNote: `Tempo bicara berada di ${averageWpm} kata per menit dan tergolong ${tempoLabel === 'normal' ? 'stabil' : tempoLabel === 'fast' ? 'cepat' : 'lambat'}.`
+      },
+      {
+        id: 'fillerWords',
+        title: 'Kata Jeda',
+        score: fillerScore,
+        status: statusFromScore(fillerScore),
+        evaluationNote: fillerCount > 0
+          ? `Terdapat filler word seperti ${topFillers || 'kata jeda'} sebanyak ${fillerCount} kali saat presentasi.`
+          : 'Tidak ditemukan kata jeda yang mengganggu selama presentasi.'
+      },
+      {
+        id: 'articulation',
+        title: 'Artikulasi',
+        score: articulationScore,
+        status: statusFromScore(articulationScore),
+        evaluationNote: 'Artikulasi masih dinilai dari kualitas transcript karena confidence per kata belum tersedia.'
+      },
+      {
+        id: 'wordWaste',
+        title: 'Pemborosan Kata',
+        score: wordWasteScore,
+        status: statusFromScore(wordWasteScore),
+        evaluationNote: repeatedWords.length > 0
+          ? `Terdapat ${repeatedWords.length} kata berulang yang berpotensi membuat penyampaian kurang ringkas.`
+          : 'Tidak ditemukan pemborosan kata yang menonjol pada transcript.'
+      }
+    ],
+    details: {
+      intonation: {
+        chart: [],
+        metrics: { averageVolume: feedback.avg_volume },
+        aiTips: feedback.mr_owi_tips?.intonasi || []
+      },
+      eyeContact: {
+        events: [],
+        focusDuration,
+        unfocusDuration,
+        aiTips: [
+          'Arahkan wajah ke kamera saat menyampaikan poin utama.',
+          'Gunakan catatan singkat agar tidak terlalu sering melihat ke luar kamera.'
+        ]
+      },
+      tempo: {
+        chart: [
+          { second: Math.round(durationSeconds * 0.33), wpm: averageWpm },
+          { second: Math.round(durationSeconds * 0.66), wpm: averageWpm },
+          { second: Math.round(durationSeconds), wpm: averageWpm }
+        ],
+        averageWpm,
+        segments: [
+          {
+            startSecond: 0,
+            endSecond: Math.round(durationSeconds),
+            label: tempoLabel,
+            wpm: averageWpm
+          }
+        ],
+        aiTips: [
+          'Jaga tempo di kisaran 100 sampai 160 kata per menit.',
+          'Tambahkan jeda singkat setelah menyampaikan poin penting.'
+        ]
+      },
+      fillerWords: {
+        transcript,
+        fillerWords: fillerSummary,
+        totalCount: fillerCount,
+        aiTips: feedback.mr_owi_tips?.kata_jeda || []
+      },
+      articulation: {
+        unclearSegments: [],
+        aiTips: feedback.mr_owi_tips?.artikulasi || []
+      },
+      wordWaste: {
+        transcript,
+        wastedPhrases: repeatedWords.map(word => ({
+          text: word,
+          reason: 'Kata ini terdeteksi berulang dan berpotensi membuat kalimat kurang efisien.'
+        })),
+        aiTips: feedback.mr_owi_tips?.pemborosan_kata || []
+      }
+    }
+  };
+}
+
 export const getSessionFeedback = async (req, res) => {
     try {
         const { session_id } = req.params
@@ -191,7 +374,48 @@ export const getSessionFeedback = async (req, res) => {
             .maybeSingle()
 
         if (error) throw error
-        res.json({ feedback: data })
+
+        if (!data) {
+            return res.json({ feedback: null })
+        }
+
+        let feedback = { ...data }
+        if (!feedback.evaluation_json) {
+            const [
+                { data: audioRecording },
+                { data: repeatedWords },
+                { data: sessionData }
+            ] = await Promise.all([
+                supabaseAdmin
+                    .from('audio_recordings')
+                    .select('transcript')
+                    .eq('session_id', session_id)
+                    .maybeSingle(),
+                supabaseAdmin
+                    .from('feedback_repeated_words')
+                    .select('word, count')
+                    .eq('feedback_id', feedback.id),
+                supabaseAdmin
+                    .from('game_sessions')
+                    .select('duration')
+                    .eq('id', session_id)
+                    .maybeSingle()
+            ])
+
+            feedback.evaluation_json = buildEvaluationJson(feedback, audioRecording, repeatedWords, sessionData)
+
+            // Cache the generated evaluation_json back to the database
+            const { error: updateError } = await supabaseAdmin
+                .from('feedbacks')
+                .update({ evaluation_json: feedback.evaluation_json })
+                .eq('id', feedback.id)
+
+            if (updateError) {
+                console.error(`[getSessionFeedback] Failed to cache evaluation_json for feedback ${feedback.id}:`, updateError.message)
+            }
+        }
+
+        res.json({ feedback })
     } catch (err) {
         res.status(500).json({ error: err.message })
     }
