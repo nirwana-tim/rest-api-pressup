@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { supabaseAdmin } from '../config/supabase.js'
+import { runBackgroundAudioProcessing } from './processAudio.js'
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024
 const MAX_AUDIO_DURATION_SECONDS = Number(process.env.MAX_AUDIO_DURATION_SECONDS ?? 900)
@@ -137,22 +138,10 @@ async function saveInitialRecording({ sessionId, audioUrl, duration }) {
 }
 
 async function triggerAsyncProcessing(sessionId, audioUrl, duration, telemetry) {
-  try {
-    const url = `${process.env.PROCESSOR_API_URL}/api/process-audio`
-    console.log(`[analyze-audio] Triggering async processing at ${url}`)
-    fetch(url, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'x-api-secret': process.env.API_SECRET_KEY
-      },
-      body: JSON.stringify({ sessionId, audio_url: audioUrl, duration, telemetry }),
-    }).catch(err => {
-      console.error('[analyze-audio] Background fetch to API 2 failed:', err.message)
-    })
-  } catch (err) {
-    console.error('[analyze-audio] Failed to initiate async trigger:', err.message)
-  }
+  console.log(`[analyze-audio] Triggering async background audio processing for session ${sessionId}`)
+  runBackgroundAudioProcessing({ sessionId, audioUrl, duration, telemetry }).catch(err => {
+    console.error('[analyze-audio] Error in background audio processing:', err.message)
+  })
 }
 
 export const analyzeAudioFromStorage = async (req, res) => {
