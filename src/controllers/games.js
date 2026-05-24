@@ -1,4 +1,6 @@
 import { supabaseAdmin } from '../config/supabase.js'
+const TEMPO_WINDOW_SECONDS = 10
+
 const verifySessionOwnership = async (sessionId, userId) => {
     const { data } = await supabaseAdmin
         .from('game_sessions')
@@ -206,8 +208,135 @@ function buildTranscriptTokens(transcriptText, fillerWords = [], repeatedWords =
     });
 }
 
+function tempoLabelFromWpm(wpm) {
+  if (wpm < 100) return 'slow'
+  if (wpm > 160) return 'fast'
+  return 'normal'
+}
+
+function buildTempoTimeline(wordTimings = [], durationSeconds = 1, fallbackWpm = 0) {
+  const safeDuration = Math.max(Math.round(Number(durationSeconds) || 1), 1)
+  const validWords = Array.isArray(wordTimings)
+    ? wordTimings.filter(word =>
+        Number.isFinite(Number(word.startSecond)) &&
+        Number(word.startSecond) >= 0 &&
+        String(word.text || '').trim().length > 0
+      )
+    : []
+
+  if (validWords.length === 0) {
+    const safeWpm = Math.max(Math.round(Number(fallbackWpm) || 0), 0)
+    return {
+      chart: safeWpm > 0
+        ? [
+            { second: Math.round(safeDuration * 0.33), wpm: safeWpm },
+            { second: Math.round(safeDuration * 0.66), wpm: safeWpm },
+            { second: safeDuration, wpm: safeWpm }
+          ]
+        : [],
+      segments: safeWpm > 0
+        ? [
+            {
+              startSecond: 0,
+              endSecond: safeDuration,
+              label: tempoLabelFromWpm(safeWpm),
+              wpm: safeWpm
+            }
+          ]
+        : []
+    }
+  }
+
+  const windowSeconds = safeDuration <= TEMPO_WINDOW_SECONDS
+    ? safeDuration
+    : TEMPO_WINDOW_SECONDS
+  const segments = []
+
+  for (let start = 0; start < safeDuration; start += windowSeconds) {
+    const end = Math.min(start + windowSeconds, safeDuration)
+    const seconds = Math.max(end - start, 1)
+    const wordCount = validWords.filter(word =>
+      Number(word.startSecond) >= start && Number(word.startSecond) < end
+    ).length
+    const wpm = Math.round((wordCount / seconds) * 60)
+
+    segments.push({
+      startSecond: start,
+      endSecond: end,
+      label: tempoLabelFromWpm(wpm),
+      wpm
+    })
+  }
+
+  return {
+    chart: segments.map(segment => ({
+      second: segment.endSecond,
+      wpm: segment.wpm
+    })),
+    segments
+  }
+}
+
+function chartLooksLikeFallback(chart = [], segments = []) {
+  if (!Array.isArray(chart) || chart.length === 0) return true
+  if (segments.length <= 1) return true
+
+  const uniqueWpm = new Set(
+    chart
+      .map(point => Number(point?.wpm))
+      .filter(Number.isFinite)
+  )
+
+  return chart.length <= 3 && uniqueWpm.size <= 1
+}
+
+function refreshTempoFromWordTimings(evaluation, audioRecording, sessionData, fallbackWpm = 0) {
+  const wordTimings = Array.isArray(audioRecording?.word_timings)
+    ? audioRecording.word_timings
+    : []
+
+  if (wordTimings.length === 0 || !evaluation?.details?.tempo) {
+    return { evaluation, changed: false }
+  }
+
+  const focusDuration = Number(evaluation.details.eyeContact?.focusDuration) || 0
+  const unfocusDuration = Number(evaluation.details.eyeContact?.unfocusDuration) || 0
+  const durationSeconds = (focusDuration + unfocusDuration) > 0
+    ? focusDuration + unfocusDuration
+    : (sessionData?.duration ? sessionData.duration * 60 : 60)
+  const tempo = evaluation.details.tempo
+
+  if (!chartLooksLikeFallback(tempo.chart, tempo.segments)) {
+    return { evaluation, changed: false }
+  }
+
+  const tempoTimeline = buildTempoTimeline(
+    wordTimings,
+    durationSeconds,
+    tempo.averageWpm || fallbackWpm
+  )
+
+  return {
+    evaluation: {
+      ...evaluation,
+      details: {
+        ...evaluation.details,
+        tempo: {
+          ...tempo,
+          chart: tempoTimeline.chart,
+          segments: tempoTimeline.segments
+        }
+      }
+    },
+    changed: true
+  }
+}
+
 function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessionData) {
   const transcriptText = audioRecording?.transcript || '';
+  const wordTimings = Array.isArray(audioRecording?.word_timings)
+    ? audioRecording.word_timings
+    : []
   const repeatedWords = (repeatedWordsData || []).map(r => r.word);
   
   const DEFAULT_FILLERS = ['eh', 'em', 'emm', 'hmm', 'anu'];
@@ -239,6 +368,7 @@ function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessio
 
   const averageWpm = feedback.wpm || Math.round((totalWords / Math.max(durationSeconds, 1)) * 60);
   const tempoLabel = averageWpm < 100 ? 'slow' : averageWpm > 160 ? 'fast' : 'normal';
+  const tempoTimeline = buildTempoTimeline(wordTimings, durationSeconds, averageWpm);
 
   const eyeScore = feedback.eye_score ?? 0;
   const intonationScore = feedback.voice_score ?? 0;
@@ -319,20 +449,9 @@ function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessio
         ]
       },
       tempo: {
-        chart: [
-          { second: Math.round(durationSeconds * 0.33), wpm: averageWpm },
-          { second: Math.round(durationSeconds * 0.66), wpm: averageWpm },
-          { second: Math.round(durationSeconds), wpm: averageWpm }
-        ],
+        chart: tempoTimeline.chart,
         averageWpm,
-        segments: [
-          {
-            startSecond: 0,
-            endSecond: Math.round(durationSeconds),
-            label: tempoLabel,
-            wpm: averageWpm
-          }
-        ],
+        segments: tempoTimeline.segments,
         aiTips: [
           'Jaga tempo di kisaran 100 sampai 160 kata per menit.',
           'Tambahkan jeda singkat setelah menyampaikan poin penting.'
@@ -388,7 +507,7 @@ export const getSessionFeedback = async (req, res) => {
             ] = await Promise.all([
                 supabaseAdmin
                     .from('audio_recordings')
-                    .select('transcript')
+                    .select('transcript, word_timings')
                     .eq('session_id', session_id)
                     .maybeSingle(),
                 supabaseAdmin
@@ -412,6 +531,49 @@ export const getSessionFeedback = async (req, res) => {
 
             if (updateError) {
                 console.error(`[getSessionFeedback] Failed to cache evaluation_json for feedback ${feedback.id}:`, updateError.message)
+            }
+        } else {
+            const needsTempoRefresh = chartLooksLikeFallback(
+                feedback.evaluation_json?.details?.tempo?.chart,
+                feedback.evaluation_json?.details?.tempo?.segments
+            )
+
+            if (needsTempoRefresh) {
+                const [
+                    { data: audioRecording },
+                    { data: sessionData }
+                ] = await Promise.all([
+                    supabaseAdmin
+                        .from('audio_recordings')
+                        .select('word_timings')
+                        .eq('session_id', session_id)
+                        .maybeSingle(),
+                    supabaseAdmin
+                        .from('game_sessions')
+                        .select('duration')
+                        .eq('id', session_id)
+                        .maybeSingle()
+                ])
+
+                const refreshed = refreshTempoFromWordTimings(
+                    feedback.evaluation_json,
+                    audioRecording,
+                    sessionData,
+                    feedback.wpm
+                )
+
+                if (refreshed.changed) {
+                    feedback.evaluation_json = refreshed.evaluation
+
+                    const { error: updateError } = await supabaseAdmin
+                        .from('feedbacks')
+                        .update({ evaluation_json: feedback.evaluation_json })
+                        .eq('id', feedback.id)
+
+                    if (updateError) {
+                        console.error(`[getSessionFeedback] Failed to refresh tempo chart for feedback ${feedback.id}:`, updateError.message)
+                    }
+                }
             }
         }
 
