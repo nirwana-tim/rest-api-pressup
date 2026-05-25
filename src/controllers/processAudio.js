@@ -2,6 +2,8 @@ import { AssemblyAI } from 'assemblyai';
 import Groq from 'groq-sdk';
 import { supabaseAdmin } from '../config/supabase.js';
 
+const TEMPO_WINDOW_SECONDS = 10;
+
 // Groq ApiKeyRotator
 class GroqApiKeyRotator {
   constructor() {
@@ -165,6 +167,115 @@ function formatDuration(seconds = 0) {
   return `${minutes}:${secs}`;
 }
 
+function tempoLabelFromWpm(wpm) {
+  if (wpm < 100) return 'slow';
+  if (wpm > 160) return 'fast';
+  return 'normal';
+}
+
+function buildTempoTimeline(wordTimings = [], durationSeconds = 1, fallbackWpm = 0) {
+  const safeDuration = Math.max(Math.round(Number(durationSeconds) || 1), 1);
+  const validWords = Array.isArray(wordTimings)
+    ? wordTimings.filter(word =>
+        Number.isFinite(Number(word.startSecond)) &&
+        Number(word.startSecond) >= 0 &&
+        String(word.text || '').trim().length > 0
+      )
+    : [];
+
+  if (validWords.length === 0) {
+    const safeWpm = Math.max(Math.round(Number(fallbackWpm) || 0), 0);
+    return {
+      chart: safeWpm > 0
+        ? [
+            { second: Math.round(safeDuration * 0.33), wpm: safeWpm },
+            { second: Math.round(safeDuration * 0.66), wpm: safeWpm },
+            { second: safeDuration, wpm: safeWpm }
+          ]
+        : [],
+      segments: safeWpm > 0
+        ? [
+            {
+              startSecond: 0,
+              endSecond: safeDuration,
+              label: tempoLabelFromWpm(safeWpm),
+              wpm: safeWpm
+            }
+          ]
+        : []
+    };
+  }
+
+  const windowSeconds = safeDuration <= TEMPO_WINDOW_SECONDS
+    ? safeDuration
+    : TEMPO_WINDOW_SECONDS;
+  const segments = [];
+
+  for (let start = 0; start < safeDuration; start += windowSeconds) {
+    const end = Math.min(start + windowSeconds, safeDuration);
+    const seconds = Math.max(end - start, 1);
+    const wordCount = validWords.filter(word =>
+      Number(word.startSecond) >= start && Number(word.startSecond) < end
+    ).length;
+    const wpm = Math.round((wordCount / seconds) * 60);
+
+    segments.push({
+      startSecond: start,
+      endSecond: end,
+      label: tempoLabelFromWpm(wpm),
+      wpm
+    });
+  }
+
+  return {
+    chart: segments.map(segment => ({
+      second: segment.endSecond,
+      wpm: segment.wpm
+    })),
+    segments
+  };
+}
+
+function normalizeWordTiming(word) {
+  const startSecond = Number.isFinite(Number(word?.start))
+    ? Number(word.start) / 1000
+    : Number(word?.startSecond);
+  const endSecond = Number.isFinite(Number(word?.end))
+    ? Number(word.end) / 1000
+    : Number(word?.endSecond);
+  const text = String(word?.text || '').trim();
+
+  if (!text || !Number.isFinite(startSecond)) return null;
+
+  return {
+    text,
+    startSecond: Math.max(0, Number(startSecond.toFixed(2))),
+    endSecond: Number.isFinite(endSecond)
+      ? Math.max(0, Number(endSecond.toFixed(2)))
+      : undefined,
+    confidence: Number.isFinite(Number(word?.confidence))
+      ? Number(word.confidence)
+      : undefined,
+  };
+}
+
+function extractWordTimings(transcript) {
+  const fromUtterances = Array.isArray(transcript?.utterances)
+    ? transcript.utterances
+        .filter(u => u.speaker === 'A' || u.speaker === 0 || u.speaker === '1')
+        .flatMap(u => Array.isArray(u.words) ? u.words : [])
+    : [];
+  const rawWords = fromUtterances.length > 0
+    ? fromUtterances
+    : Array.isArray(transcript?.words)
+      ? transcript.words
+      : [];
+
+  return rawWords
+    .map(normalizeWordTiming)
+    .filter(Boolean);
+}
+
 function normalizeTranscriptWord(text) {
   return String(text).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 }
@@ -322,7 +433,8 @@ function buildPresentationEvaluation({
   duration,
   analysis,
   telemetry,
-  mrOwiTips
+  mrOwiTips,
+  wordTimings = [],
 }) {
   const fillerWords = analysis.filler_words || [];
   const repeatedWords = analysis.repeated_words || [];
@@ -339,6 +451,7 @@ function buildPresentationEvaluation({
   const topFillers = fillerSummary.slice(0, 2).map(item => `"${item.word}"`).join(' dan ');
   const transcript = buildTranscriptTokens(transcriptText, fillerWords, repeatedWords);
   const tempoLabel = averageWpm < 100 ? 'slow' : averageWpm > 160 ? 'fast' : 'normal';
+  const tempoTimeline = buildTempoTimeline(wordTimings, durationSeconds, averageWpm);
 
   return {
     sessionId,
@@ -411,20 +524,9 @@ function buildPresentationEvaluation({
         ]
       },
       tempo: {
-        chart: [
-          { second: Math.round(durationSeconds * 0.33), wpm: averageWpm },
-          { second: Math.round(durationSeconds * 0.66), wpm: averageWpm },
-          { second: durationSeconds, wpm: averageWpm }
-        ],
+        chart: tempoTimeline.chart,
         averageWpm,
-        segments: [
-          {
-            startSecond: 0,
-            endSecond: durationSeconds,
-            label: tempoLabel,
-            wpm: averageWpm
-          }
-        ],
+        segments: tempoTimeline.segments,
         aiTips: [
           'Jaga tempo di kisaran 100 sampai 160 kata per menit.',
           'Tambahkan jeda singkat setelah menyampaikan poin penting.'
@@ -468,6 +570,7 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
 
   let transcriptText = '';
   let transcribed = false;
+  let wordTimings = [];
 
   // ============================================================
   // TAHAP 1: SPEECH-TO-TEXT DENGAN ASSEMBLYAI & SIMPAN TRANSKRIP
@@ -498,6 +601,7 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
         } else {
           transcriptText = transcript.text || '';
         }
+        wordTimings = extractWordTimings(transcript);
 
         transcribed = true;
         console.log(`[AssemblyAI] Transcription successful.`);
@@ -530,6 +634,7 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
       .from('audio_recordings')
       .update({
         transcript: transcriptText,
+        word_timings: wordTimings,
         is_processed: true,
         processing_status: 'completed',
         processed_at: new Date(),
@@ -692,7 +797,8 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
         duration,
         analysis,
         telemetry,
-        mrOwiTips
+        mrOwiTips,
+        wordTimings
       });
 
       // ============================================
@@ -789,7 +895,8 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
         duration,
         telemetry,
         analysis,
-        mrOwiTips: defaultMrOwiTips
+        mrOwiTips: defaultMrOwiTips,
+        wordTimings: []
       });
 
       const feedbackData = {
