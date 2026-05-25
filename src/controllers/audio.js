@@ -22,6 +22,11 @@ const analyzeAudioSchema = z.object({
         status: z.enum(['focused', 'notFocused']),
       })).default([]),
     }).optional(),
+    intonation: z.object({
+      volumeHistory: z.array(z.number()).max(3000).default([]),
+      averageVolume: z.number().optional(),
+      monotoneLevel: z.enum(['low', 'medium', 'high']).optional(),
+    }).optional(),
   }).optional(),
 })
 

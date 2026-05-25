@@ -236,6 +236,42 @@ function buildTempoTimeline(wordTimings = [], durationSeconds = 1, fallbackWpm =
   };
 }
 
+function normalizeVolumeForChart(volume) {
+  const numericVolume = Number(volume);
+  if (!Number.isFinite(numericVolume)) return null;
+  return Math.max(0, Math.min(100, Math.round(((numericVolume + 60) / 60) * 100)));
+}
+
+function buildIntonationChart(volumeHistory = [], durationSeconds = 1) {
+  if (!Array.isArray(volumeHistory) || volumeHistory.length === 0) return [];
+
+  const safeDuration = Math.max(Math.round(Number(durationSeconds) || 1), 1);
+  const maxPoints = 28;
+  const sampleSize = Math.max(1, Math.ceil(volumeHistory.length / maxPoints));
+  const sampled = [];
+
+  for (let index = 0; index < volumeHistory.length; index += sampleSize) {
+    const chunk = volumeHistory.slice(index, index + sampleSize);
+    const normalizedChunk = chunk
+      .map(normalizeVolumeForChart)
+      .filter(Number.isFinite);
+
+    if (normalizedChunk.length === 0) continue;
+
+    const value = Math.round(
+      normalizedChunk.reduce((sum, item) => sum + item, 0) / normalizedChunk.length,
+    );
+    const second = Math.min(
+      safeDuration,
+      Math.round(((index + chunk.length) / volumeHistory.length) * safeDuration),
+    );
+
+    sampled.push({ second, value });
+  }
+
+  return sampled;
+}
+
 function normalizeWordTiming(word) {
   const startSecond = Number.isFinite(Number(word?.start))
     ? Number(word.start) / 1000
@@ -354,6 +390,63 @@ function detectWordWaste(words = []) {
   return [...wastePhrases, ...detectPhraseMatches(words, REDUNDANT_PHRASES)];
 }
 
+function isAcousticFillerWord(word = '') {
+  return (
+    /^e+h?$/.test(word) ||
+    /^e+m+$/.test(word) ||
+    /^e+u+m+$/.test(word) ||
+    /^u+h+$/.test(word) ||
+    /^u+m+$/.test(word) ||
+    /^h+m+$/.test(word) ||
+    /^m{2,}$/.test(word)
+  );
+}
+
+function isUnclearToken(word = '') {
+  const normalized = normalizeTranscriptWord(word);
+  if (!normalized || SINGLE_WORD_FILLERS.has(normalized) || isAcousticFillerWord(normalized)) {
+    return false;
+  }
+
+  return (
+    (normalized.length >= 4 && !/[aiueo]/.test(normalized)) ||
+    (normalized.length >= 5 && /(.)\1{3,}/.test(normalized))
+  );
+}
+
+function detectUnclearSegments(transcriptText = '', wordTimings = []) {
+  const timedSegments = Array.isArray(wordTimings)
+    ? wordTimings
+        .filter(word => {
+          const text = String(word?.text || '').trim();
+          const confidence = Number(word?.confidence);
+          return (
+            isUnclearToken(text) ||
+            (Number.isFinite(confidence) && confidence < 0.55 && normalizeTranscriptWord(text).length >= 3)
+          );
+        })
+        .map(word => ({
+          startSecond: Math.max(0, Math.round(Number(word.startSecond) || 0)),
+          endSecond: Math.max(
+            Math.round(Number(word.startSecond) || 0),
+            Math.round(Number(word.endSecond) || Number(word.startSecond) || 0),
+          ),
+          text: String(word.text || '').trim(),
+          confidence: Number.isFinite(Number(word.confidence)) ? Number(word.confidence) : undefined,
+        }))
+    : [];
+
+  if (timedSegments.length > 0) return timedSegments;
+
+  return tokenizeTranscript(transcriptText)
+    .filter(isUnclearToken)
+    .map(word => ({
+      startSecond: 0,
+      endSecond: 0,
+      text: word,
+    }));
+}
+
 function analyzeTranscriptLocally(transcriptText = '') {
   const words = tokenizeTranscript(transcriptText);
   const fillerWords = detectFillerWords(words);
@@ -446,7 +539,14 @@ function buildPresentationEvaluation({
   const averageWpm = Math.round((totalWords / durationSeconds) * 60);
   const fillerScore = Math.max(0, 100 - fillerCount * 5);
   const wordWasteScore = Math.max(0, 100 - repeatedWords.length * 6);
+  const unclearSegments = detectUnclearSegments(transcriptText, wordTimings);
+  const articulationScore = Math.max(0, 100 - unclearSegments.length * 8);
   const eyeContact = telemetry?.eyeContact;
+  const intonationTelemetry = telemetry?.intonation;
+  const intonationChart = buildIntonationChart(
+    intonationTelemetry?.volumeHistory,
+    durationSeconds,
+  );
   const eyeScore = eyeContact?.focusScore ?? 0;
   const fillerCountMap = countWords(fillerWords);
   const fillerSummary = Object.entries(fillerCountMap).map(([word, count]) => ({ word, count }));
@@ -496,9 +596,11 @@ function buildPresentationEvaluation({
       {
         id: 'articulation',
         title: 'Artikulasi',
-        score: analysis.overall_score || 0,
-        status: 'warning',
-        evaluationNote: 'Artikulasi masih dinilai dari kualitas transcript karena confidence per kata belum tersedia.'
+        score: articulationScore,
+        status: statusFromScore(articulationScore),
+        evaluationNote: unclearSegments.length > 0
+          ? `Terdapat ${unclearSegments.length} kata atau bunyi yang kurang jelas dan berpotensi tidak bermakna dalam transcript.`
+          : 'Tidak ditemukan kata tidak bermakna yang menonjol pada transcript.'
       },
       {
         id: 'wordWaste',
@@ -512,8 +614,11 @@ function buildPresentationEvaluation({
     ],
     details: {
       intonation: {
-        chart: [],
-        metrics: {},
+        chart: intonationChart,
+        metrics: {
+          averageVolume: intonationTelemetry?.averageVolume,
+          monotoneLevel: intonationTelemetry?.monotoneLevel,
+        },
         aiTips: mrOwiTips.intonasi
       },
       eyeContact: {
@@ -541,7 +646,7 @@ function buildPresentationEvaluation({
         aiTips: mrOwiTips.kata_jeda
       },
       articulation: {
-        unclearSegments: [],
+        unclearSegments,
         aiTips: mrOwiTips.artikulasi
       },
       wordWaste: {

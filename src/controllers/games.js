@@ -329,6 +329,63 @@ function detectWordWaste(words = []) {
   return [...wastePhrases, ...detectPhraseMatches(words, REDUNDANT_PHRASES)]
 }
 
+function isAcousticFillerWord(word = '') {
+  return (
+    /^e+h?$/.test(word) ||
+    /^e+m+$/.test(word) ||
+    /^e+u+m+$/.test(word) ||
+    /^u+h+$/.test(word) ||
+    /^u+m+$/.test(word) ||
+    /^h+m+$/.test(word) ||
+    /^m{2,}$/.test(word)
+  )
+}
+
+function isUnclearToken(word = '') {
+  const normalized = normalizeTranscriptWord(word)
+  if (!normalized || SINGLE_WORD_FILLERS.has(normalized) || isAcousticFillerWord(normalized)) {
+    return false
+  }
+
+  return (
+    (normalized.length >= 4 && !/[aiueo]/.test(normalized)) ||
+    (normalized.length >= 5 && /(.)\1{3,}/.test(normalized))
+  )
+}
+
+function detectUnclearSegments(transcriptText = '', wordTimings = []) {
+  const timedSegments = Array.isArray(wordTimings)
+    ? wordTimings
+        .filter(word => {
+          const text = String(word?.text || '').trim()
+          const confidence = Number(word?.confidence)
+          return (
+            isUnclearToken(text) ||
+            (Number.isFinite(confidence) && confidence < 0.55 && normalizeTranscriptWord(text).length >= 3)
+          )
+        })
+        .map(word => ({
+          startSecond: Math.max(0, Math.round(Number(word.startSecond) || 0)),
+          endSecond: Math.max(
+            Math.round(Number(word.startSecond) || 0),
+            Math.round(Number(word.endSecond) || Number(word.startSecond) || 0),
+          ),
+          text: String(word.text || '').trim(),
+          confidence: Number.isFinite(Number(word.confidence)) ? Number(word.confidence) : undefined,
+        }))
+    : []
+
+  if (timedSegments.length > 0) return timedSegments
+
+  return tokenizeTranscript(transcriptText)
+    .filter(isUnclearToken)
+    .map(word => ({
+      startSecond: 0,
+      endSecond: 0,
+      text: word,
+    }))
+}
+
 function buildTranscriptTokens(transcriptText, fillerWords = [], repeatedWords = []) {
   const fillerSet = new Set(
     fillerWords
@@ -452,6 +509,42 @@ function buildTempoTimeline(wordTimings = [], durationSeconds = 1, fallbackWpm =
   }
 }
 
+function normalizeVolumeForChart(volume) {
+  const numericVolume = Number(volume)
+  if (!Number.isFinite(numericVolume)) return null
+  return Math.max(0, Math.min(100, Math.round(((numericVolume + 60) / 60) * 100)))
+}
+
+function buildIntonationChart(volumeHistory = [], durationSeconds = 1) {
+  if (!Array.isArray(volumeHistory) || volumeHistory.length === 0) return []
+
+  const safeDuration = Math.max(Math.round(Number(durationSeconds) || 1), 1)
+  const maxPoints = 28
+  const sampleSize = Math.max(1, Math.ceil(volumeHistory.length / maxPoints))
+  const sampled = []
+
+  for (let index = 0; index < volumeHistory.length; index += sampleSize) {
+    const chunk = volumeHistory.slice(index, index + sampleSize)
+    const normalizedChunk = chunk
+      .map(normalizeVolumeForChart)
+      .filter(Number.isFinite)
+
+    if (normalizedChunk.length === 0) continue
+
+    const value = Math.round(
+      normalizedChunk.reduce((sum, item) => sum + item, 0) / normalizedChunk.length,
+    )
+    const second = Math.min(
+      safeDuration,
+      Math.round(((index + chunk.length) / volumeHistory.length) * safeDuration),
+    )
+
+    sampled.push({ second, value })
+  }
+
+  return sampled
+}
+
 function chartLooksLikeFallback(chart = [], segments = []) {
   if (!Array.isArray(chart) || chart.length === 0) return true
   if (segments.length <= 1) return true
@@ -547,7 +640,12 @@ function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessio
   const intonationScore = feedback.voice_score ?? 0;
   const fillerScore = feedback.filler_score ?? 0;
   const wordWasteScore = feedback.word_waste_score ?? 0;
-  const articulationScore = feedback.articulation_score ?? 0;
+  const unclearSegments = detectUnclearSegments(transcriptText, wordTimings);
+  const computedArticulationScore = Math.max(0, 100 - unclearSegments.length * 8);
+  const articulationScore =
+    feedback.articulation_score && feedback.articulation_score > 0
+      ? feedback.articulation_score
+      : computedArticulationScore;
 
   const transcript = buildTranscriptTokens(transcriptText, fillerWordsList, repeatedWords);
 
@@ -594,7 +692,9 @@ function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessio
         title: 'Artikulasi',
         score: articulationScore,
         status: statusFromScore(articulationScore),
-        evaluationNote: 'Artikulasi masih dinilai dari kualitas transcript karena confidence per kata belum tersedia.'
+        evaluationNote: unclearSegments.length > 0
+          ? `Terdapat ${unclearSegments.length} kata atau bunyi yang kurang jelas dan berpotensi tidak bermakna dalam transcript.`
+          : 'Tidak ditemukan kata tidak bermakna yang menonjol pada transcript.'
       },
       {
         id: 'wordWaste',
@@ -609,7 +709,10 @@ function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessio
     details: {
       intonation: {
         chart: [],
-        metrics: { averageVolume: feedback.avg_volume },
+        metrics: {
+          averageVolume: feedback.avg_volume,
+          monotoneLevel: feedback.evaluation_json?.details?.intonation?.metrics?.monotoneLevel,
+        },
         aiTips: feedback.mr_owi_tips?.intonasi || []
       },
       eyeContact: {
@@ -637,7 +740,7 @@ function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessio
         aiTips: feedback.mr_owi_tips?.kata_jeda || []
       },
       articulation: {
-        unclearSegments: [],
+        unclearSegments,
         aiTips: feedback.mr_owi_tips?.artikulasi || []
       },
       wordWaste: {
@@ -710,17 +813,28 @@ export const getSessionFeedback = async (req, res) => {
                 feedback.evaluation_json?.details?.tempo?.chart,
                 feedback.evaluation_json?.details?.tempo?.segments
             )
+            const needsArticulationRefresh =
+                !Array.isArray(feedback.evaluation_json?.details?.articulation?.unclearSegments) ||
+                feedback.evaluation_json?.summary?.some(item =>
+                    item.id === 'articulation' &&
+                    String(item.evaluationNote || '').includes('confidence per kata belum tersedia')
+                )
 
-            if (needsTempoRefresh) {
+            if (needsTempoRefresh || needsArticulationRefresh) {
                 const [
                     { data: audioRecording },
+                    { data: repeatedWords },
                     { data: sessionData }
                 ] = await Promise.all([
                     supabaseAdmin
                         .from('audio_recordings')
-                        .select('word_timings')
+                        .select('transcript, word_timings')
                         .eq('session_id', session_id)
                         .maybeSingle(),
+                    supabaseAdmin
+                        .from('feedback_repeated_words')
+                        .select('word, count')
+                        .eq('feedback_id', feedback.id),
                     supabaseAdmin
                         .from('game_sessions')
                         .select('duration')
@@ -728,15 +842,17 @@ export const getSessionFeedback = async (req, res) => {
                         .maybeSingle()
                 ])
 
-                const refreshed = refreshTempoFromWordTimings(
-                    feedback.evaluation_json,
-                    audioRecording,
-                    sessionData,
-                    feedback.wpm
-                )
+                const refreshedEvaluation = needsArticulationRefresh
+                    ? buildEvaluationJson(feedback, audioRecording, repeatedWords, sessionData)
+                    : refreshTempoFromWordTimings(
+                        feedback.evaluation_json,
+                        audioRecording,
+                        sessionData,
+                        feedback.wpm
+                    ).evaluation
 
-                if (refreshed.changed) {
-                    feedback.evaluation_json = refreshed.evaluation
+                if (refreshedEvaluation !== feedback.evaluation_json) {
+                    feedback.evaluation_json = refreshedEvaluation
 
                     const { error: updateError } = await supabaseAdmin
                         .from('feedbacks')
