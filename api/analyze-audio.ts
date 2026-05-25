@@ -30,6 +30,65 @@ type TranscriptAnalysis = {
 const AUDIO_FETCH_TIMEOUT_MS = 30_000;
 const AI_TIMEOUT_MS = 60_000;
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+const SINGLE_WORD_FILLERS = new Set([
+  "e",
+  "ee",
+  "eee",
+  "eeee",
+  "eh",
+  "em",
+  "emm",
+  "emmm",
+  "hm",
+  "hmm",
+  "hmmm",
+  "mmm",
+  "um",
+  "umm",
+  "uh",
+  "anu",
+  "anuu",
+  "nah",
+  "jadi",
+  "terus",
+  "kayak",
+  "gitu",
+  "tuh",
+  "ya",
+  "kan",
+]);
+const PHRASE_FILLERS = [
+  ["apa", "ya"],
+  ["apa", "namanya"],
+  ["apa", "tuh"],
+  ["apa", "itu"],
+  ["gimana", "ya"],
+  ["ini", "tuh"],
+  ["itu", "tuh"],
+  ["yang", "kayak"],
+  ["kayak", "gitu"],
+].sort((a, b) => b.length - a.length);
+const REDUNDANT_PHRASES = [
+  ["sangat", "sekali"],
+  ["amat", "sangat"],
+  ["paling", "terbaik"],
+  ["agar", "supaya"],
+  ["demi", "untuk"],
+  ["adalah", "merupakan"],
+  ["naik", "ke", "atas"],
+  ["turun", "ke", "bawah"],
+  ["masuk", "ke", "dalam"],
+  ["keluar", "ke", "luar"],
+  ["maju", "ke", "depan"],
+  ["mundur", "ke", "belakang"],
+  ["kembali", "lagi"],
+  ["ulang", "kembali"],
+  ["mengulang", "kembali"],
+  ["sejak", "dari"],
+  ["para", "hadirin", "sekalian"],
+  ["para", "teman", "teman", "sekalian"],
+  ["hadirin", "sekalian"],
+].sort((a, b) => b.length - a.length);
 
 function sendSuccess<T>(
   res: VercelResponse,
@@ -115,32 +174,85 @@ async function transcribeAudio(input: AnalyzeAudioInput): Promise<string> {
   }
 }
 
-function analyzeTranscriptText(transcript: string): TranscriptAnalysis {
-  const words = transcript
+function tokenizeTranscript(transcript: string): string[] {
+  return transcript
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
     .filter(Boolean);
+}
 
-  const fillerDictionary = new Set([
-    "eh",
-    "em",
-    "emm",
-    "hmm",
-    "anu",
-    "jadi",
-    "kayak",
-    "seperti",
-  ]);
+function detectFillerWords(words: string[]): string[] {
+  const fillerWords: string[] = [];
+  const phraseIndexes = new Set<number>();
 
-  const filler_words = words.filter((word) => fillerDictionary.has(word));
-  const repeated_words: string[] = [];
+  for (let index = 0; index < words.length; index += 1) {
+    const phrase = PHRASE_FILLERS.find((candidate) =>
+      candidate.every((word, offset) => words[index + offset] === word),
+    );
+
+    if (!phrase) continue;
+
+    fillerWords.push(phrase.join(" "));
+    phrase.forEach((_, offset) => phraseIndexes.add(index + offset));
+    index += phrase.length - 1;
+  }
+
+  words.forEach((word, index) => {
+    const isAcousticFiller =
+      /^e+h?$/.test(word) ||
+      /^u+h+$/.test(word) ||
+      /^u+m+$/.test(word) ||
+      /^h+m+$/.test(word) ||
+      /^m{2,}$/.test(word);
+
+    if (
+      !phraseIndexes.has(index) &&
+      (SINGLE_WORD_FILLERS.has(word) || isAcousticFiller)
+    ) {
+      fillerWords.push(word);
+    }
+  });
+
+  return fillerWords;
+}
+
+function detectPhraseMatches(
+  words: string[],
+  phrasePatterns: string[][],
+): string[] {
+  const matches: string[] = [];
+
+  for (let index = 0; index < words.length; index += 1) {
+    const phrase = phrasePatterns.find((candidate) =>
+      candidate.every((word, offset) => words[index + offset] === word),
+    );
+
+    if (!phrase) continue;
+
+    matches.push(phrase.join(" "));
+    index += phrase.length - 1;
+  }
+
+  return matches;
+}
+
+function detectWordWaste(words: string[]): string[] {
+  const wastePhrases: string[] = [];
 
   for (let index = 1; index < words.length; index += 1) {
     if (words[index] === words[index - 1]) {
-      repeated_words.push(words[index]);
+      wastePhrases.push(`${words[index - 1]} ${words[index]}`);
     }
   }
+
+  return [...wastePhrases, ...detectPhraseMatches(words, REDUNDANT_PHRASES)];
+}
+
+function analyzeTranscriptText(transcript: string): TranscriptAnalysis {
+  const words = tokenizeTranscript(transcript);
+  const filler_words = detectFillerWords(words);
+  const repeated_words = detectWordWaste(words);
 
   const filler_count = filler_words.length;
   const total_words = words.length;

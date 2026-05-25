@@ -61,7 +61,7 @@ const DEFAULT_MR_OWI_TIPS = {
   ],
   kata_jeda: [
     'Saat butuh waktu berpikir, lebih baik berhenti sejenak daripada mengisi dengan kata pengisi. Diam singkat terlihat lebih percaya diri.',
-    'Siapkan penghubung seperti "selanjutnya", "berikutnya", atau "jadi" agar alur bicara lebih terstruktur dan tidak terputus-putus.',
+    'Siapkan penghubung seperti "selanjutnya" atau "berikutnya" agar alur bicara lebih terstruktur dan tidak terputus-putus.',
     'Dengarkan kembali rekaman presentasi untuk menyadari seberapa sering filler muncul, lalu perbaiki secara bertahap.'
   ],
   pemborosan_kata: [
@@ -69,6 +69,68 @@ const DEFAULT_MR_OWI_TIPS = {
     'Hindari pengulangan makna dalam satu kalimat. Jika pesan sudah jelas, tidak perlu ditambah kata yang hanya memperpanjang tanpa menambah arti.'
   ]
 };
+
+const SINGLE_WORD_FILLERS = new Set([
+  'e',
+  'ee',
+  'eee',
+  'eeee',
+  'eh',
+  'em',
+  'emm',
+  'emmm',
+  'hm',
+  'hmm',
+  'hmmm',
+  'mmm',
+  'um',
+  'umm',
+  'uh',
+  'anu',
+  'anuu',
+  'nah',
+  'jadi',
+  'terus',
+  'kayak',
+  'gitu',
+  'tuh',
+  'ya',
+  'kan',
+]);
+
+const PHRASE_FILLERS = [
+  ['apa', 'ya'],
+  ['apa', 'namanya'],
+  ['apa', 'tuh'],
+  ['apa', 'itu'],
+  ['gimana', 'ya'],
+  ['ini', 'tuh'],
+  ['itu', 'tuh'],
+  ['yang', 'kayak'],
+  ['kayak', 'gitu'],
+].sort((a, b) => b.length - a.length);
+
+const REDUNDANT_PHRASES = [
+  ['sangat', 'sekali'],
+  ['amat', 'sangat'],
+  ['paling', 'terbaik'],
+  ['agar', 'supaya'],
+  ['demi', 'untuk'],
+  ['adalah', 'merupakan'],
+  ['naik', 'ke', 'atas'],
+  ['turun', 'ke', 'bawah'],
+  ['masuk', 'ke', 'dalam'],
+  ['keluar', 'ke', 'luar'],
+  ['maju', 'ke', 'depan'],
+  ['mundur', 'ke', 'belakang'],
+  ['kembali', 'lagi'],
+  ['ulang', 'kembali'],
+  ['mengulang', 'kembali'],
+  ['sejak', 'dari'],
+  ['para', 'hadirin', 'sekalian'],
+  ['para', 'teman', 'teman', 'sekalian'],
+  ['hadirin', 'sekalian'],
+].sort((a, b) => b.length - a.length);
 
 function normalizeTipList(value, fallback) {
   if (!Array.isArray(value)) return fallback;
@@ -103,18 +165,145 @@ function formatDuration(seconds = 0) {
   return `${minutes}:${secs}`;
 }
 
-function buildTranscriptTokens(transcriptText, fillerWords = [], repeatedWords = []) {
-  const fillerSet = new Set(fillerWords.map(word => String(word).toLowerCase()));
-  const repeatedSet = new Set(repeatedWords.map(word => String(word).toLowerCase()));
+function normalizeTranscriptWord(text) {
+  return String(text).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+}
 
+function tokenizeTranscript(transcriptText = '') {
   return transcriptText
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
-    .filter(Boolean)
-    .map(text => {
-      const normalized = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    .filter(Boolean);
+}
+
+function detectFillerWords(words = []) {
+  const fillerWords = [];
+  const phraseIndexes = new Set();
+
+  for (let index = 0; index < words.length; index += 1) {
+    const phrase = PHRASE_FILLERS.find(candidate =>
+      candidate.every((word, offset) => words[index + offset] === word)
+    );
+
+    if (!phrase) continue;
+
+    fillerWords.push(phrase.join(' '));
+    phrase.forEach((_, offset) => phraseIndexes.add(index + offset));
+    index += phrase.length - 1;
+  }
+
+  words.forEach((word, index) => {
+    const isAcousticFiller =
+      /^e+h?$/.test(word) ||
+      /^u+h+$/.test(word) ||
+      /^u+m+$/.test(word) ||
+      /^h+m+$/.test(word) ||
+      /^m{2,}$/.test(word);
+
+    if (
+      !phraseIndexes.has(index) &&
+      (SINGLE_WORD_FILLERS.has(word) || isAcousticFiller)
+    ) {
+      fillerWords.push(word);
+    }
+  });
+
+  return fillerWords;
+}
+
+function detectPhraseMatches(words = [], phrasePatterns = []) {
+  const matches = [];
+
+  for (let index = 0; index < words.length; index += 1) {
+    const phrase = phrasePatterns.find(candidate =>
+      candidate.every((word, offset) => words[index + offset] === word)
+    );
+
+    if (!phrase) continue;
+
+    matches.push(phrase.join(' '));
+    index += phrase.length - 1;
+  }
+
+  return matches;
+}
+
+function detectWordWaste(words = []) {
+  const wastePhrases = [];
+
+  for (let index = 1; index < words.length; index += 1) {
+    if (words[index] === words[index - 1]) {
+      wastePhrases.push(`${words[index - 1]} ${words[index]}`);
+    }
+  }
+
+  return [...wastePhrases, ...detectPhraseMatches(words, REDUNDANT_PHRASES)];
+}
+
+function analyzeTranscriptLocally(transcriptText = '') {
+  const words = tokenizeTranscript(transcriptText);
+  const fillerWords = detectFillerWords(words);
+  const wordWaste = detectWordWaste(words);
+
+  return {
+    filler_words: fillerWords,
+    filler_count: fillerWords.length,
+    repeated_words: wordWaste,
+    total_words: words.length,
+  };
+}
+
+function buildTranscriptTokens(transcriptText, fillerWords = [], repeatedWords = []) {
+  const fillerSet = new Set(
+    fillerWords
+      .map(word => String(word).toLowerCase())
+      .filter(word => !word.includes(' '))
+  );
+  const fillerPhrases = fillerWords
+    .map(word => String(word).toLowerCase().split(/\s+/).filter(Boolean))
+    .filter(words => words.length > 1);
+  const repeatedSet = new Set(
+    repeatedWords
+      .map(word => String(word).toLowerCase())
+      .filter(word => !word.includes(' '))
+  );
+  const repeatedPhrases = repeatedWords
+    .map(word => String(word).toLowerCase().split(/\s+/).filter(Boolean))
+    .filter(words => words.length > 1);
+  const rawTokens = transcriptText.split(/\s+/).filter(Boolean);
+  const normalizedTokens = rawTokens.map(normalizeTranscriptWord);
+  const fillerTokenIndexes = new Set();
+  const wasteTokenIndexes = new Set();
+
+  for (let index = 0; index < normalizedTokens.length; index += 1) {
+    const phrase = fillerPhrases.find(candidate =>
+      candidate.every((word, offset) => normalizedTokens[index + offset] === word)
+    );
+
+    if (!phrase) continue;
+
+    phrase.forEach((_, offset) => fillerTokenIndexes.add(index + offset));
+    index += phrase.length - 1;
+  }
+
+  for (let index = 0; index < normalizedTokens.length; index += 1) {
+    const phrase = repeatedPhrases.find(candidate =>
+      candidate.every((word, offset) => normalizedTokens[index + offset] === word)
+    );
+
+    if (!phrase) continue;
+
+    phrase.forEach((_, offset) => wasteTokenIndexes.add(index + offset));
+    index += phrase.length - 1;
+  }
+
+  return rawTokens
+    .map((text, index) => {
+      const normalized = normalizedTokens[index];
       const tags = [];
-      if (fillerSet.has(normalized)) tags.push('filler');
-      if (repeatedSet.has(normalized)) tags.push('waste');
+      if (fillerSet.has(normalized) || fillerTokenIndexes.has(index)) tags.push('filler');
+      if (repeatedSet.has(normalized) || wasteTokenIndexes.has(index)) tags.push('waste');
       return { text, tags };
     });
 }
@@ -202,7 +391,7 @@ function buildPresentationEvaluation({
         score: wordWasteScore,
         status: statusFromScore(wordWasteScore),
         evaluationNote: repeatedWords.length > 0
-          ? `Terdapat ${repeatedWords.length} kata berulang yang berpotensi membuat penyampaian kurang ringkas.`
+          ? `Terdapat ${repeatedWords.length} frasa redundan atau pengulangan yang berpotensi membuat penyampaian kurang ringkas.`
           : 'Tidak ditemukan pemborosan kata yang menonjol pada transcript.'
       }
     ],
@@ -255,7 +444,7 @@ function buildPresentationEvaluation({
         transcript,
         wastedPhrases: repeatedWords.map(word => ({
           text: word,
-          reason: 'Kata ini terdeteksi berulang dan berpotensi membuat kalimat kurang efisien.'
+          reason: 'Bagian ini terdeteksi sebagai pengulangan atau redundansi makna yang membuat kalimat kurang efisien.'
         })),
         aiTips: mrOwiTips.pemborosan_kata
       }
@@ -387,8 +576,13 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
       const groqPrompt = `
       Anda adalah seorang ahli komunikasi dan pelatih public speaking. Analisis transkripsi berikut.
       Tugas Anda:
-      1. Hitung dan deteksi "filler words" (contoh: "eh", "em", "emm", "hmm", "anu").
+      1. Hitung dan deteksi "filler words" Bahasa Indonesia yang lazim muncul di lapangan.
+         Contoh kuat: "e", "ee", "eee", "eh", "em", "emm", "hm", "hmm", "mmm", "um", "uh", "anu".
+         Contoh pengisi wacana saat berlebihan: "nah", "jadi", "terus", "kayak", "gitu", "tuh", "ya", "kan".
+         Contoh frasa filler: "apa ya", "apa namanya", "apa tuh", "apa itu", "gimana ya", "ini tuh", "itu tuh", "kayak gitu".
+         Jangan menandai kata formal yang memang bermakna seperti "seperti" sebagai filler word.
       2. Analisis tingkat kelancaran berbicara (apakah ada ketidaklancaran/gagap).
+         Untuk pemborosan kata, prioritaskan redundansi makna seperti "sangat sekali", "agar supaya", "naik ke atas", "turun ke bawah", "masuk ke dalam", "keluar ke luar", "kembali lagi", "adalah merupakan", serta pengulangan langsung seperti "saya saya".
       3. Berikan rekomendasi/referensi kata alternatif yang lebih baik untuk menggantikan kata-kata yang kurang tepat.
       4. Berikan total jumlah kata dan skor keseluruhan (0-100).
       5. Wajib keluarkan 4 output teks tips "Tips dari Mr Owi":
@@ -400,9 +594,9 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
       
       Output harus dalam format JSON yang valid dengan struktur berikut:
       {
-        "filler_words": ["eh", "hmm"],
+        "filler_words": ["eh", "hmm", "apa ya"],
         "filler_count": 2,
-        "repeated_words": ["dan"],
+        "repeated_words": ["sangat sekali", "saya saya"],
         "total_words": 100,
         "overall_score": 85,
         "summary": "Ringkasan evaluasi...",
@@ -420,11 +614,11 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
           ],
           "kata_jeda": [
             "Saat butuh waktu berpikir, lebih baik berhenti sejenak daripada mengisi dengan kata pengisi.",
-            "Siapkan penghubung seperti selanjutnya, berikutnya, atau jadi agar alur bicara lebih terstruktur.",
+            "Siapkan penghubung seperti selanjutnya atau berikutnya agar alur bicara lebih terstruktur.",
             "Dengarkan kembali rekaman presentasi untuk menyadari seberapa sering filler muncul."
           ],
           "pemborosan_kata": [
-            "Hindari penggunaan ganda seperti sangat sekali, benar-benar sangat, atau agar supaya.",
+            "Hindari penggunaan ganda seperti sangat sekali, agar supaya, atau naik ke atas.",
             "Hindari pengulangan makna dalam satu kalimat jika pesan sudah jelas."
           ]
         },
@@ -484,6 +678,12 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
         analysis = { summary: 'Gagal memproses hasil analisis AI.' };
       }
 
+      const transcriptAnalysis = analyzeTranscriptLocally(transcriptText);
+      analysis.filler_words = transcriptAnalysis.filler_words;
+      analysis.filler_count = transcriptAnalysis.filler_count;
+      analysis.repeated_words = transcriptAnalysis.repeated_words;
+      analysis.total_words = transcriptAnalysis.total_words;
+
       finalScore = analysis.overall_score || 0;
       const mrOwiTips = normalizeMrOwiTips(analysis.mr_owi_tips);
       const evaluation = buildPresentationEvaluation({
@@ -529,13 +729,19 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
       } else {
         console.log(`[Supabase] Feedback saved successfully for session ${sessionId}`);
         
-        // Simpan repeated words ke tabel database feedback_repeated_words
+        // Simpan word waste ke tabel database feedback_repeated_words.
         if (analysis.repeated_words && Array.isArray(analysis.repeated_words) && analysis.repeated_words.length > 0 && feedback) {
-          const cleanTranscript = transcriptText.toLowerCase().replace(/[.,!?;:"""''()[\]{}]/g, '');
-          const wordsList = cleanTranscript.split(/\s+/);
+          const wordsList = tokenizeTranscript(transcriptText);
           
           const repeatedWordsData = analysis.repeated_words.map(word => {
-            const occurrences = wordsList.filter(w => w === word.toLowerCase()).length;
+            const wasteTokens = String(word).toLowerCase().split(/\s+/).filter(Boolean);
+            let occurrences = 0;
+
+            for (let index = 0; index < wordsList.length; index += 1) {
+              const isMatch = wasteTokens.every((token, offset) => wordsList[index + offset] === token);
+              if (isMatch) occurrences += 1;
+            }
+
             return {
               feedback_id: feedback.id,
               word: word,
