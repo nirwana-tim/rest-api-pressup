@@ -282,6 +282,8 @@ function detectFillerWords(words = []) {
   words.forEach((word, index) => {
     const isAcousticFiller =
       /^e+h?$/.test(word) ||
+      /^e+m+$/.test(word) ||
+      /^e+u+m+$/.test(word) ||
       /^u+h+$/.test(word) ||
       /^u+m+$/.test(word) ||
       /^h+m+$/.test(word) ||

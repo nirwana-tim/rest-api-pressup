@@ -307,6 +307,8 @@ function detectFillerWords(words = []) {
   words.forEach((word, index) => {
     const isAcousticFiller =
       /^e+h?$/.test(word) ||
+      /^e+m+$/.test(word) ||
+      /^e+u+m+$/.test(word) ||
       /^u+h+$/.test(word) ||
       /^u+m+$/.test(word) ||
       /^h+m+$/.test(word) ||
@@ -585,6 +587,7 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
         const transcript = await client.transcripts.transcribe({
           audio: audioUrl,
           speech_models: ['universal-3-pro', 'universal-2'],
+          disfluencies: true,
           language_detection: true,
           speaker_labels: true,
           punctuate: true,
