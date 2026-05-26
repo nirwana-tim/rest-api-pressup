@@ -1,6 +1,42 @@
 import { supabase, supabaseAdmin } from "../config/supabase.js";
 import { createProfileIfNotExists } from "./profiles.js";
 
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+async function findRegisteredUserByEmail(email) {
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedEmail) return null;
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("id, email")
+    .ilike("email", normalizedEmail)
+    .maybeSingle();
+
+  if (profileError) {
+    throw profileError;
+  }
+
+  if (profile?.id) {
+    return profile;
+  }
+
+  const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+
+  if (error) {
+    throw error;
+  }
+
+  return (
+    data.users.find(
+      (user) => normalizeEmail(user.email) === normalizedEmail,
+    ) ?? null
+  );
+}
+
 // ================================
 // REGISTER dengan email & password
 // ================================
@@ -197,10 +233,18 @@ export const getProfile = async (req, res) => {
 // ================================
 export const forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmail(req.body.email);
 
     if (!email) {
       return res.status(400).json({ error: "Email wajib diisi" });
+    }
+
+    const registeredUser = await findRegisteredUserByEmail(email);
+
+    if (!registeredUser) {
+      return res.status(404).json({
+        error: "Email belum terdaftar. Silakan cek kembali atau daftar akun baru.",
+      });
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(email);
