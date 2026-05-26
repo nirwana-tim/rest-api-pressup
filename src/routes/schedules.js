@@ -1,8 +1,15 @@
 import { Router } from 'express'
-import { getSchedule, saveSchedule, deleteSchedule } from '../controllers/schedules.js'
+import {
+  deleteSchedule,
+  getSchedule,
+  saveSchedule,
+  sendDueScheduleReminders,
+} from '../controllers/schedules.js'
 import { authenticate } from '../middleware/auth.js'
 
 const router = Router()
+
+router.post('/reminders/send-due', sendDueScheduleReminders)
 
 router.use(authenticate)
 

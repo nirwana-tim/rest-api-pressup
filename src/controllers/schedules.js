@@ -1,4 +1,58 @@
 import { supabaseAdmin } from '../config/supabase.js'
+import { sendScheduleReminderEmail } from '../services/emailService.js'
+import { buildScheduleReminders } from '../services/reminderScheduler.js'
+
+const DEFAULT_TIMEZONE = 'Asia/Jakarta'
+const REMINDER_CRON_LIMIT = 25
+
+async function regenerateScheduleReminders(schedule) {
+    const { error: cancelError } = await supabaseAdmin
+        .from('schedule_reminders')
+        .update({ status: 'cancelled' })
+        .eq('schedule_id', schedule.id)
+        .eq('status', 'pending')
+
+    if (cancelError) throw cancelError
+
+    const reminders = buildScheduleReminders({
+        scheduleId: schedule.id,
+        userId: schedule.user_id,
+        presentationDate: schedule.presentation_date,
+        timezone: schedule.timezone || DEFAULT_TIMEZONE,
+    })
+
+    if (reminders.length === 0) return []
+
+    const { data, error } = await supabaseAdmin
+        .from('schedule_reminders')
+        .insert(reminders)
+        .select()
+
+    if (error) throw error
+
+    return data || []
+}
+
+async function getReminderContext(reminder) {
+    const [{ data: schedule, error: scheduleError }, { data: profile, error: profileError }] =
+        await Promise.all([
+            supabaseAdmin
+                .from('schedules')
+                .select('*')
+                .eq('id', reminder.schedule_id)
+                .maybeSingle(),
+            supabaseAdmin
+                .from('profiles')
+                .select('id, name, email')
+                .eq('id', reminder.user_id)
+                .maybeSingle(),
+        ])
+
+    if (scheduleError) throw scheduleError
+    if (profileError) throw profileError
+
+    return { schedule, profile }
+}
 
 // ================================
 // GET Schedule — Ambil jadwal presentasi aktif
@@ -40,7 +94,12 @@ export const getSchedule = async (req, res) => {
 // ================================
 export const saveSchedule = async (req, res) => {
     try {
-        const { presentation_date, notification_id } = req.body
+        const {
+            presentation_date,
+            notification_id,
+            presentation_title,
+            timezone = DEFAULT_TIMEZONE,
+        } = req.body
 
         if (!presentation_date) {
             return res.status(400).json({ error: 'presentation_date wajib diisi' })
@@ -67,7 +126,9 @@ export const saveSchedule = async (req, res) => {
 
         const payload = {
             presentation_date: parsedDate.toISOString(),
-            ...(notification_id && { notification_id })
+            timezone,
+            ...(notification_id && { notification_id }),
+            ...(presentation_title !== undefined && { presentation_title }),
         }
 
         if (existing.data) {
@@ -96,7 +157,13 @@ export const saveSchedule = async (req, res) => {
 
         if (error) throw error
 
-        res.json({ message: 'Jadwal berhasil disimpan', schedule: data })
+        const reminders = await regenerateScheduleReminders(data)
+
+        res.json({
+            message: 'Jadwal berhasil disimpan',
+            schedule: data,
+            reminders,
+        })
     } catch (err) {
         res.status(500).json({ error: err.message })
     }
@@ -107,6 +174,25 @@ export const saveSchedule = async (req, res) => {
 // ================================
 export const deleteSchedule = async (req, res) => {
     try {
+        const { data: schedules, error: findError } = await supabaseAdmin
+            .from('schedules')
+            .select('id')
+            .eq('user_id', req.user.id)
+
+        if (findError) throw findError
+
+        const scheduleIds = (schedules || []).map((schedule) => schedule.id)
+
+        if (scheduleIds.length > 0) {
+            const { error: cancelError } = await supabaseAdmin
+                .from('schedule_reminders')
+                .update({ status: 'cancelled' })
+                .in('schedule_id', scheduleIds)
+                .eq('status', 'pending')
+
+            if (cancelError) throw cancelError
+        }
+
         const { error } = await supabaseAdmin
             .from('schedules')
             .delete()
@@ -115,6 +201,102 @@ export const deleteSchedule = async (req, res) => {
         if (error) throw error
 
         res.json({ message: 'Jadwal berhasil dihapus' })
+    } catch (err) {
+        res.status(500).json({ error: err.message })
+    }
+}
+
+// ================================
+// SEND Due Reminders — Dipanggil cron job backend
+// ================================
+export const sendDueScheduleReminders = async (req, res) => {
+    try {
+        const cronSecret = process.env.CRON_SECRET
+        const requestSecret = req.headers['x-cron-secret'] || req.query.secret
+
+        if (!cronSecret || requestSecret !== cronSecret) {
+            return res.status(401).json({ error: 'Unauthorized cron request' })
+        }
+
+        const { data: reminders, error } = await supabaseAdmin
+            .from('schedule_reminders')
+            .select('*')
+            .eq('status', 'pending')
+            .lte('reminder_at', new Date().toISOString())
+            .order('reminder_at', { ascending: true })
+            .limit(REMINDER_CRON_LIMIT)
+
+        if (error) throw error
+
+        const results = []
+
+        for (const reminder of reminders || []) {
+            const { data: lockedReminder, error: lockError } = await supabaseAdmin
+                .from('schedule_reminders')
+                .update({ status: 'processing' })
+                .eq('id', reminder.id)
+                .eq('status', 'pending')
+                .select()
+                .maybeSingle()
+
+            if (lockError) {
+                results.push({ id: reminder.id, status: 'failed', error: lockError.message })
+                continue
+            }
+
+            if (!lockedReminder) continue
+
+            try {
+                const { schedule, profile } = await getReminderContext(lockedReminder)
+
+                if (!schedule || schedule.deleted_at || new Date(schedule.presentation_date) <= new Date()) {
+                    await supabaseAdmin
+                        .from('schedule_reminders')
+                        .update({ status: 'cancelled' })
+                        .eq('id', lockedReminder.id)
+
+                    results.push({ id: lockedReminder.id, status: 'cancelled' })
+                    continue
+                }
+
+                await sendScheduleReminderEmail({
+                    profile,
+                    schedule,
+                    reminder: lockedReminder,
+                })
+
+                await supabaseAdmin
+                    .from('schedule_reminders')
+                    .update({
+                        status: 'sent',
+                        sent_at: new Date().toISOString(),
+                        error_message: null,
+                    })
+                    .eq('id', lockedReminder.id)
+
+                results.push({ id: lockedReminder.id, status: 'sent' })
+            } catch (sendError) {
+                await supabaseAdmin
+                    .from('schedule_reminders')
+                    .update({
+                        status: 'failed',
+                        error_message: sendError.message,
+                    })
+                    .eq('id', lockedReminder.id)
+
+                results.push({
+                    id: lockedReminder.id,
+                    status: 'failed',
+                    error: sendError.message,
+                })
+            }
+        }
+
+        res.json({
+            message: 'Reminder cron selesai',
+            processed: results.length,
+            results,
+        })
     } catch (err) {
         res.status(500).json({ error: err.message })
     }
