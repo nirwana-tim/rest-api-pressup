@@ -4,8 +4,14 @@ import {
 } from './reminderScheduler.js'
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
-const DEFAULT_FROM_EMAIL = 'noreply@pressup.app'
-const DEFAULT_FROM_NAME = 'Press Up'
+
+function requireEnv(name) {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(`${name} belum dikonfigurasi`)
+  }
+  return value
+}
 
 function formatPresentationDate(dateValue, timeZone = 'Asia/Jakarta') {
   return new Intl.DateTimeFormat('id-ID', {
@@ -66,14 +72,10 @@ function buildReminderText({ profile, schedule, reminder }) {
 }
 
 export async function sendScheduleReminderEmail({ profile, schedule, reminder }) {
-  const apiKey = process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY
-  const senderEmail = process.env.REMINDER_EMAIL_FROM || DEFAULT_FROM_EMAIL
-  const senderName = process.env.REMINDER_EMAIL_FROM_NAME || DEFAULT_FROM_NAME
+  const apiKey = requireEnv('BREVO_API_KEY')
+  const senderEmail = requireEnv('REMINDER_EMAIL_FROM')
+  const senderName = requireEnv('REMINDER_EMAIL_FROM_NAME')
   const to = profile?.email
-
-  if (!apiKey) {
-    throw new Error('BREVO_API_KEY belum dikonfigurasi')
-  }
 
   if (!to) {
     throw new Error('Email user tidak ditemukan')

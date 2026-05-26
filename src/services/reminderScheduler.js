@@ -2,6 +2,17 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_TIMEZONE = 'Asia/Jakarta'
 const MORNING_REMINDER_HOUR = 7
 
+export function isValidTimeZone(timeZone) {
+  if (!timeZone || typeof timeZone !== 'string') return false
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date())
+    return true
+  } catch {
+    return false
+  }
+}
+
 function getZonedParts(date, timeZone = DEFAULT_TIMEZONE) {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone,
@@ -118,6 +129,10 @@ export function buildScheduleReminders({
   timezone = DEFAULT_TIMEZONE,
   now = new Date(),
 }) {
+  if (!isValidTimeZone(timezone)) {
+    throw new Error('Timezone tidak valid')
+  }
+
   const presentationAt = new Date(presentationDate)
   const diffMs = presentationAt.getTime() - now.getTime()
 

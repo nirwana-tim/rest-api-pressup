@@ -1,18 +1,25 @@
 import { supabaseAdmin } from '../config/supabase.js'
 import { sendScheduleReminderEmail } from '../services/emailService.js'
-import { buildScheduleReminders } from '../services/reminderScheduler.js'
+import {
+    buildScheduleReminders,
+    isValidTimeZone,
+} from '../services/reminderScheduler.js'
 
 const DEFAULT_TIMEZONE = 'Asia/Jakarta'
 const REMINDER_CRON_LIMIT = 25
 
 async function regenerateScheduleReminders(schedule) {
+    const now = new Date().toISOString()
+
     const { error: cancelError } = await supabaseAdmin
         .from('schedule_reminders')
-        .update({ status: 'cancelled' })
+        .update({ status: 'cancelled', updated_at: now })
         .eq('schedule_id', schedule.id)
         .eq('status', 'pending')
 
     if (cancelError) throw cancelError
+
+    if (schedule.reminder_email_enabled === false) return []
 
     const reminders = buildScheduleReminders({
         scheduleId: schedule.id,
@@ -70,6 +77,7 @@ export const getSchedule = async (req, res) => {
             .from('schedules')
             .select('*')
             .eq('user_id', req.user.id)
+            .is('deleted_at', null)
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle()
@@ -99,10 +107,22 @@ export const saveSchedule = async (req, res) => {
             notification_id,
             presentation_title,
             timezone = DEFAULT_TIMEZONE,
+            reminder_email_enabled,
         } = req.body
 
         if (!presentation_date) {
             return res.status(400).json({ error: 'presentation_date wajib diisi' })
+        }
+
+        if (!isValidTimeZone(timezone)) {
+            return res.status(400).json({ error: 'timezone tidak valid' })
+        }
+
+        if (
+            reminder_email_enabled !== undefined &&
+            typeof reminder_email_enabled !== 'boolean'
+        ) {
+            return res.status(400).json({ error: 'reminder_email_enabled harus boolean' })
         }
 
         const parsedDate = new Date(presentation_date)
@@ -118,6 +138,7 @@ export const saveSchedule = async (req, res) => {
             .from('schedules')
             .select('id')
             .eq('user_id', req.user.id)
+            .is('deleted_at', null)
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle()
@@ -129,6 +150,7 @@ export const saveSchedule = async (req, res) => {
             timezone,
             ...(notification_id && { notification_id }),
             ...(presentation_title !== undefined && { presentation_title }),
+            ...(reminder_email_enabled !== undefined && { reminder_email_enabled }),
         }
 
         if (existing.data) {
@@ -178,6 +200,7 @@ export const deleteSchedule = async (req, res) => {
             .from('schedules')
             .select('id')
             .eq('user_id', req.user.id)
+            .is('deleted_at', null)
 
         if (findError) throw findError
 
@@ -186,7 +209,7 @@ export const deleteSchedule = async (req, res) => {
         if (scheduleIds.length > 0) {
             const { error: cancelError } = await supabaseAdmin
                 .from('schedule_reminders')
-                .update({ status: 'cancelled' })
+                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
                 .in('schedule_id', scheduleIds)
                 .eq('status', 'pending')
 
@@ -195,8 +218,12 @@ export const deleteSchedule = async (req, res) => {
 
         const { error } = await supabaseAdmin
             .from('schedules')
-            .delete()
+            .update({
+                deleted_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            })
             .eq('user_id', req.user.id)
+            .is('deleted_at', null)
 
         if (error) throw error
 
@@ -233,7 +260,7 @@ export const sendDueScheduleReminders = async (req, res) => {
         for (const reminder of reminders || []) {
             const { data: lockedReminder, error: lockError } = await supabaseAdmin
                 .from('schedule_reminders')
-                .update({ status: 'processing' })
+                .update({ status: 'processing', updated_at: new Date().toISOString() })
                 .eq('id', reminder.id)
                 .eq('status', 'pending')
                 .select()
@@ -249,10 +276,18 @@ export const sendDueScheduleReminders = async (req, res) => {
             try {
                 const { schedule, profile } = await getReminderContext(lockedReminder)
 
-                if (!schedule || schedule.deleted_at || new Date(schedule.presentation_date) <= new Date()) {
+                if (
+                    !schedule ||
+                    schedule.deleted_at ||
+                    schedule.reminder_email_enabled === false ||
+                    new Date(schedule.presentation_date) <= new Date()
+                ) {
                     await supabaseAdmin
                         .from('schedule_reminders')
-                        .update({ status: 'cancelled' })
+                        .update({
+                            status: 'cancelled',
+                            updated_at: new Date().toISOString(),
+                        })
                         .eq('id', lockedReminder.id)
 
                     results.push({ id: lockedReminder.id, status: 'cancelled' })
@@ -271,6 +306,7 @@ export const sendDueScheduleReminders = async (req, res) => {
                         status: 'sent',
                         sent_at: new Date().toISOString(),
                         error_message: null,
+                        updated_at: new Date().toISOString(),
                     })
                     .eq('id', lockedReminder.id)
 
@@ -281,6 +317,7 @@ export const sendDueScheduleReminders = async (req, res) => {
                     .update({
                         status: 'failed',
                         error_message: sendError.message,
+                        updated_at: new Date().toISOString(),
                     })
                     .eq('id', lockedReminder.id)
 
