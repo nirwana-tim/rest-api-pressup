@@ -276,12 +276,79 @@ function normalizeWordTiming(word) {
   };
 }
 
-function extractWordTimings(transcript) {
-  const fromUtterances = Array.isArray(transcript?.utterances)
+function getSpeakerKey(speaker) {
+  return speaker === undefined || speaker === null ? 'unknown' : String(speaker);
+}
+
+function selectDominantSpeaker(utterances = []) {
+  if (!Array.isArray(utterances) || utterances.length === 0) return null;
+
+  const stats = new Map();
+
+  utterances.forEach(utterance => {
+    const speaker = getSpeakerKey(utterance?.speaker);
+    const text = String(utterance?.text || '').trim();
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    const start = Number(utterance?.start);
+    const end = Number(utterance?.end);
+    const duration = Number.isFinite(start) && Number.isFinite(end)
+      ? Math.max(0, end - start)
+      : 0;
+    const current = stats.get(speaker) || { speaker, wordCount: 0, duration: 0 };
+
+    current.wordCount += wordCount;
+    current.duration += duration;
+    stats.set(speaker, current);
+  });
+
+  return [...stats.values()].sort((a, b) => {
+    if (b.wordCount !== a.wordCount) return b.wordCount - a.wordCount;
+    return b.duration - a.duration;
+  })[0]?.speaker ?? null;
+}
+
+function getDominantSpeakerUtterances(transcript) {
+  const utterances = Array.isArray(transcript?.utterances)
     ? transcript.utterances
-        .filter(u => u.speaker === 'A' || u.speaker === 0 || u.speaker === '1')
-        .flatMap(u => Array.isArray(u.words) ? u.words : [])
     : [];
+  const dominantSpeaker = selectDominantSpeaker(utterances);
+
+  if (!dominantSpeaker) {
+    return { dominantSpeaker: null, utterances: [] };
+  }
+
+  return {
+    dominantSpeaker,
+    utterances: utterances.filter(
+      utterance => getSpeakerKey(utterance?.speaker) === dominantSpeaker,
+    ),
+  };
+}
+
+function buildTranscriptText(transcript) {
+  const { dominantSpeaker, utterances } = getDominantSpeakerUtterances(transcript);
+
+  if (utterances.length > 0) {
+    return {
+      dominantSpeaker,
+      transcriptText: utterances
+        .map(utterance => String(utterance.text || '').trim())
+        .filter(Boolean)
+        .join('\n'),
+    };
+  }
+
+  return {
+    dominantSpeaker: null,
+    transcriptText: transcript?.text || '',
+  };
+}
+
+function extractWordTimings(transcript) {
+  const { utterances } = getDominantSpeakerUtterances(transcript);
+  const fromUtterances = utterances.flatMap(u =>
+    Array.isArray(u.words) ? u.words : []
+  );
   const rawWords = fromUtterances.length > 0
     ? fromUtterances
     : Array.isArray(transcript?.words)
@@ -676,19 +743,22 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
           disfluencies: true,
           language_detection: true,
           speaker_labels: true,
-          punctuate: true,
-          format_text: true,
+          punctuate: false,
+          format_text: false,
+          prompt: [
+            'Transcribe the speech as verbatim as possible.',
+            'Preserve hesitations, filler sounds, repeated words, false starts, and disfluencies.',
+            'For Indonesian speech, preserve filled pauses such as e, ee, eee, eh, em, emm, emmm, hm, hmm, hmmm, mm, mmm, uh, um, and umm.',
+            'Do not clean up or remove filler sounds.',
+          ].join(' '),
         });
 
-        // Parse speaker text
-        if (transcript.utterances?.length > 0) {
-          transcript.utterances.forEach(u => {
-            if (u.speaker === 'A' || u.speaker === 0 || u.speaker === '1') {
-              transcriptText += u.text + '\n';
-            }
-          });
-        } else {
-          transcriptText = transcript.text || '';
+        const speakerTranscript = buildTranscriptText(transcript);
+        transcriptText = speakerTranscript.transcriptText;
+        if (speakerTranscript.dominantSpeaker) {
+          console.log(
+            `[AssemblyAI] Selected dominant speaker: ${speakerTranscript.dominantSpeaker}`,
+          );
         }
         wordTimings = extractWordTimings(transcript);
 
