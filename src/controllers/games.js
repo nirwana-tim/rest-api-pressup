@@ -12,10 +12,14 @@ const SINGLE_WORD_FILLERS = new Set([
   'hm',
   'hmm',
   'hmmm',
+  'mm',
   'mmm',
   'um',
   'umm',
   'uh',
+])
+const PHRASE_FILLERS = []
+const LEGACY_DISCOURSE_FILLERS = new Set([
   'anu',
   'anuu',
   'nah',
@@ -26,18 +30,16 @@ const SINGLE_WORD_FILLERS = new Set([
   'tuh',
   'ya',
   'kan',
+  'apa ya',
+  'apa namanya',
+  'apa tuh',
+  'apa itu',
+  'gimana ya',
+  'ini tuh',
+  'itu tuh',
+  'yang kayak',
+  'kayak gitu',
 ])
-const PHRASE_FILLERS = [
-  ['apa', 'ya'],
-  ['apa', 'namanya'],
-  ['apa', 'tuh'],
-  ['apa', 'itu'],
-  ['gimana', 'ya'],
-  ['ini', 'tuh'],
-  ['itu', 'tuh'],
-  ['yang', 'kayak'],
-  ['kayak', 'gitu'],
-].sort((a, b) => b.length - a.length)
 const REDUNDANT_PHRASES = [
   ['sangat', 'sekali'],
   ['amat', 'sangat'],
@@ -558,6 +560,16 @@ function chartLooksLikeFallback(chart = [], segments = []) {
   return chart.length <= 3 && uniqueWpm.size <= 1
 }
 
+function evaluationHasLegacyFillers(evaluation) {
+  const fillerWords = evaluation?.details?.fillerWords?.fillerWords
+  if (!Array.isArray(fillerWords)) return false
+
+  return fillerWords.some(item => {
+    const word = String(item?.word || item || '').toLowerCase().trim()
+    return LEGACY_DISCOURSE_FILLERS.has(word)
+  })
+}
+
 function refreshTempoFromWordTimings(evaluation, audioRecording, sessionData, fallbackWpm = 0) {
   const wordTimings = Array.isArray(audioRecording?.word_timings)
     ? audioRecording.word_timings
@@ -610,7 +622,7 @@ function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessio
     ? repeatedWordsData.map(r => r.word)
     : detectWordWaste(wordsList);
   const foundFillers = detectFillerWords(wordsList);
-  const fillerCount = foundFillers.length > 0
+  const fillerCount = wordsList.length > 0
     ? foundFillers.length
     : feedback.filler_score !== null
       ? Math.round((100 - feedback.filler_score) / 5)
@@ -638,7 +650,7 @@ function buildEvaluationJson(feedback, audioRecording, repeatedWordsData, sessio
 
   const eyeScore = feedback.eye_score ?? 0;
   const intonationScore = feedback.voice_score ?? 0;
-  const fillerScore = feedback.filler_score ?? 0;
+  const fillerScore = Math.max(0, 100 - fillerCount * 5);
   const wordWasteScore = feedback.word_waste_score ?? 0;
   const unclearSegments = detectUnclearSegments(transcriptText, wordTimings);
   const computedArticulationScore = Math.max(0, 100 - unclearSegments.length * 8);
@@ -819,8 +831,9 @@ export const getSessionFeedback = async (req, res) => {
                     item.id === 'articulation' &&
                     String(item.evaluationNote || '').includes('confidence per kata belum tersedia')
                 )
+            const needsFillerRefresh = evaluationHasLegacyFillers(feedback.evaluation_json)
 
-            if (needsTempoRefresh || needsArticulationRefresh) {
+            if (needsTempoRefresh || needsArticulationRefresh || needsFillerRefresh) {
                 const [
                     { data: audioRecording },
                     { data: repeatedWords },
@@ -842,7 +855,7 @@ export const getSessionFeedback = async (req, res) => {
                         .maybeSingle()
                 ])
 
-                const refreshedEvaluation = needsArticulationRefresh
+                const refreshedEvaluation = needsArticulationRefresh || needsFillerRefresh
                     ? buildEvaluationJson(feedback, audioRecording, repeatedWords, sessionData)
                     : refreshTempoFromWordTimings(
                         feedback.evaluation_json,

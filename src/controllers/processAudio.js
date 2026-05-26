@@ -84,33 +84,14 @@ const SINGLE_WORD_FILLERS = new Set([
   'hm',
   'hmm',
   'hmmm',
+  'mm',
   'mmm',
   'um',
   'umm',
   'uh',
-  'anu',
-  'anuu',
-  'nah',
-  'jadi',
-  'terus',
-  'kayak',
-  'gitu',
-  'tuh',
-  'ya',
-  'kan',
 ]);
 
-const PHRASE_FILLERS = [
-  ['apa', 'ya'],
-  ['apa', 'namanya'],
-  ['apa', 'tuh'],
-  ['apa', 'itu'],
-  ['gimana', 'ya'],
-  ['ini', 'tuh'],
-  ['itu', 'tuh'],
-  ['yang', 'kayak'],
-  ['kayak', 'gitu'],
-].sort((a, b) => b.length - a.length);
+const PHRASE_FILLERS = [];
 
 const REDUNDANT_PHRASES = [
   ['sangat', 'sekali'],
@@ -789,11 +770,10 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
       const groqPrompt = `
       Anda adalah seorang ahli komunikasi dan pelatih public speaking. Analisis transkripsi berikut.
       Tugas Anda:
-      1. Hitung dan deteksi "filler words" Bahasa Indonesia yang lazim muncul di lapangan.
-         Contoh kuat: "e", "ee", "eee", "eh", "em", "emm", "hm", "hmm", "mmm", "um", "uh", "anu".
-         Contoh pengisi wacana saat berlebihan: "nah", "jadi", "terus", "kayak", "gitu", "tuh", "ya", "kan".
-         Contoh frasa filler: "apa ya", "apa namanya", "apa tuh", "apa itu", "gimana ya", "ini tuh", "itu tuh", "kayak gitu".
-         Jangan menandai kata formal yang memang bermakna seperti "seperti" sebagai filler word.
+      1. Hitung dan deteksi "filler words" hanya untuk bunyi jeda non-leksikal.
+         Contoh yang boleh dihitung: "e", "ee", "eee", "eeee", "eh", "em", "emm", "emmm", "hm", "hmm", "hmmm", "mm", "mmm", "um", "umm", "uh".
+         Jangan menghitung kata sambung, partikel, atau pengisi wacana yang masih bermakna sebagai filler, termasuk: "terus", "ya", "kan", "nah", "jadi", "kayak", "gitu", "tuh", "apa ya", "apa namanya".
+         Kata-kata tersebut boleh dibahas sebagai pilihan diksi/pemborosan kata hanya jika konteksnya memang boros, tetapi tidak boleh masuk ke "filler_words" atau "filler_count".
       2. Analisis tingkat kelancaran berbicara (apakah ada ketidaklancaran/gagap).
          Untuk pemborosan kata, prioritaskan redundansi makna seperti "sangat sekali", "agar supaya", "naik ke atas", "turun ke bawah", "masuk ke dalam", "keluar ke luar", "kembali lagi", "adalah merupakan", serta pengulangan langsung seperti "saya saya".
       3. Berikan rekomendasi/referensi kata alternatif yang lebih baik untuk menggantikan kata-kata yang kurang tepat.
@@ -807,7 +787,7 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
       
       Output harus dalam format JSON yang valid dengan struktur berikut:
       {
-        "filler_words": ["eh", "hmm", "apa ya"],
+        "filler_words": ["eh", "hmm", "emmm"],
         "filler_count": 2,
         "repeated_words": ["sangat sekali", "saya saya"],
         "total_words": 100,
@@ -827,7 +807,7 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
           ],
           "kata_jeda": [
             "Saat butuh waktu berpikir, lebih baik berhenti sejenak daripada mengisi dengan kata pengisi.",
-            "Siapkan penghubung seperti selanjutnya atau berikutnya agar alur bicara lebih terstruktur.",
+            "Biasakan diam singkat saat berpikir daripada mengisi jeda dengan bunyi seperti emm atau eee.",
             "Dengarkan kembali rekaman presentasi untuk menyadari seberapa sering filler muncul."
           ],
           "pemborosan_kata": [
@@ -836,8 +816,7 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
           ]
         },
         "vocabulary_references": [
-          {"original": "kayak", "suggestion": "seperti"},
-          {"original": "anu", "suggestion": "(hapus kata ini atau ganti dengan jeda diam)"}
+          {"original": "emmm", "suggestion": "(hapus bunyi jeda ini atau ganti dengan jeda diam)"}
         ]
       }
       Jangan kembalikan apapun selain JSON.
