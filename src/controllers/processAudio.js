@@ -743,7 +743,7 @@ export const runBackgroundAudioProcessing = async ({ sessionId, audioUrl, durati
           disfluencies: true,
           language_detection: true,
           speaker_labels: true,
-          punctuate: false,
+          punctuate: true,
           format_text: false,
           prompt: [
             'Transcribe the speech as verbatim as possible.',
