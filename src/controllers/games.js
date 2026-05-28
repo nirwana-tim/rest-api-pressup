@@ -78,7 +78,7 @@ const verifySessionOwnership = async (sessionId, userId) => {
 
 export const createSession = async (req, res) => {
     try {
-        const { duration } = req.body
+        const { duration, topic } = req.body
         if (!duration) return res.status(400).json({ error: 'Duration wajib diisi' })
 
         const { data, error } = await supabaseAdmin
@@ -88,7 +88,7 @@ export const createSession = async (req, res) => {
             .single()
 
         if (error) throw error
-        res.status(201).json({ message: 'Session started', session: data })
+        res.status(201).json({ message: 'Session started', session: { ...data, topic: topic || 'Presentasi' } })
     } catch (err) {
         res.status(500).json({ error: err.message })
     }
@@ -103,7 +103,13 @@ export const getSessions = async (req, res) => {
             .order('created_at', { ascending: false })
 
         if (error) throw error
-        res.json({ sessions: data })
+
+        const sessionsWithTopic = (data || []).map(session => ({
+            ...session,
+            topic: 'Presentasi'
+        }))
+
+        res.json({ sessions: sessionsWithTopic })
     } catch (err) {
         res.status(500).json({ error: err.message })
     }
@@ -125,7 +131,7 @@ export const updateSessionStatus = async (req, res) => {
         if (error) throw error
         if (!data) return res.status(404).json({ error: 'Session not found' })
 
-        res.json({ message: 'Session updated', session: data })
+        res.json({ message: 'Session updated', session: { ...data, topic: 'Presentasi' } })
     } catch (err) {
         res.status(500).json({ error: err.message })
     }
